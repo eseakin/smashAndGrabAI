@@ -23,6 +23,12 @@ const ITEM_COLOR = 0x00ff00;
 const BASE_DROP_INTERVAL = 2000; // ms
 const LIVES_PER_ROUND = 3;
 const ROUND_DURATION = 60000; // 60 seconds per round
+const PLAYER_HITBOX_WIDTH = 70;
+const PLAYER_HITBOX_HEIGHT = 80;
+const PLAYER_HITBOX_OFFSET_X = -10;
+const PLAYER_HITBOX_OFFSET_Y = 0;
+const PLAYER_JUMP_HITBOX_HEIGHT = 130; // 80 + 50
+const PLAYER_JUMP_HITBOX_OFFSET_Y = 0; // Keep top aligned, extend down
 
 // Item types
 const ITEM_TYPES = {
@@ -73,6 +79,7 @@ export class MainScene extends Phaser.Scene {
   private isStunned = false;
   private stunTimer = 0;
   private readonly STUN_DURATION = 1000; // 1 second stun
+  private debugGraphics!: Phaser.GameObjects.Graphics; // Add debug graphics
 
   constructor() {
     super({ key: "MainScene" });
@@ -96,7 +103,9 @@ export class MainScene extends Phaser.Scene {
     this.load.image("gem-3", "images/Effects/BulletsEtc/Gem-3.png");
 
     // Bullet sprite for harmful items
-    this.load.image("bullet-1", "images/Effects/BulletsEtc/Bullet-2.png");
+    this.load.image("bullet-1", "images/Effects/BulletsEtc/Bullet-1.png");
+    this.load.image("bullet-2", "images/Effects/BulletsEtc/Bullet-2.png");
+    this.load.image("bullet-3", "images/Effects/BulletsEtc/Bullet-3.png");
 
     // Spell effect sprite sheet
     this.load.spritesheet("spell-hit", "images/Effects/Spells/3.png", {
@@ -187,6 +196,20 @@ export class MainScene extends Phaser.Scene {
       }),
       frameRate: 60, // Doubled from 30
       repeat: 0,
+    });
+
+    // Bullet animation
+    this.anims.create({
+      key: "bullet-spin",
+      frames: [
+        { key: "bullet-1" },
+        { key: "bullet-2" },
+        { key: "bullet-3" },
+        { key: "bullet-2" },
+        { key: "bullet-1" },
+      ],
+      frameRate: 12,
+      repeat: -1,
     });
 
     // Parallax backgrounds
@@ -309,21 +332,34 @@ export class MainScene extends Phaser.Scene {
       frameRate: 12,
       repeat: 0,
     });
+    // Calculate y so bottom of hitbox is at ground, then raise by 15px
+    const playerDisplayHeight = 60;
+    const playerHitboxHeight = 70;
+    const playerY =
+      GAME_HEIGHT -
+      GROUND_HEIGHT -
+      playerDisplayHeight / 2 -
+      (playerHitboxHeight - playerDisplayHeight) / 2 -
+      15;
     this.player = this.physics.add.sprite(
       GAME_WIDTH / 2,
-      GAME_HEIGHT - GROUND_HEIGHT - 75, // 150/2 for feet on ground
+      playerY,
       "wizard-rest"
     );
     this.player.displayWidth = 80;
-    this.player.displayHeight = 60;
+    this.player.displayHeight = playerDisplayHeight;
     this.player.setCollideWorldBounds(true);
     this.player.play("wizard-rest");
 
     if (this.player.body) {
-      this.player.body.setOffset(0, -40);
+      const offsetX = this.player.flipX
+        ? -PLAYER_HITBOX_OFFSET_X
+        : PLAYER_HITBOX_OFFSET_X;
+      this.player.body.setSize(100, 110);
+      this.player.body.setOffset(offsetX, 0); // Mirror offset if flipped
       const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-      playerBody.setGravityY(500); // Increased from 500
-      playerBody.setBounce(0.2); // Reduced from 0.3
+      playerBody.setGravityY(500);
+      playerBody.setBounce(0.2);
     }
 
     // Dropper (golem)
@@ -461,6 +497,10 @@ export class MainScene extends Phaser.Scene {
       .setVisible(false);
 
     this.startCountdown();
+
+    // Add debug graphics
+    this.debugGraphics = this.add.graphics();
+    this.debugGraphics.setDepth(9999);
   }
 
   private startCountdown() {
@@ -541,6 +581,8 @@ export class MainScene extends Phaser.Scene {
       if (itemBody) {
         itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
         itemBody.setAllowGravity(true);
+        // Set physics body size to match display size
+        itemBody.setSize(ITEM_WIDTH, ITEM_HEIGHT);
         // Make item's collision point higher
         itemBody.setOffset(0.5, 0);
       }
@@ -869,15 +911,25 @@ export class MainScene extends Phaser.Scene {
               item.displayHeight = 30;
               item.play("gem-sparkle");
             } else {
-              // Bullet-2 is 538x218
-              item.displayWidth = 45;
-              item.displayHeight = 18; // 45 * (218/538) ≈ 18
+              // Bullet animation
+              item.displayWidth = 30 * (538 / 244); // Target width
+              item.displayHeight = 30; // Calculate height based on original aspect ratio
               item.setAngle(90); // Rotate 90 degrees clockwise
+              item.play("bullet-spin");
             }
             const itemBody = item.body as Phaser.Physics.Arcade.Body;
             if (itemBody) {
               itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
               itemBody.setAllowGravity(true);
+              // Set physics body size to match display size
+              if (itemType === "REQUIRED") {
+                itemBody.setSize(30, 30);
+              } else if (itemType === "BONUS") {
+                itemBody.setSize(30, 30);
+              } else {
+                // For bullets, swap dimensions since we rotate 90 degrees
+                itemBody.setSize(30 * (538 / 244), 30);
+              }
               // Make item's collision point higher
               itemBody.setOffset(0.5, 0);
             }
@@ -937,5 +989,36 @@ export class MainScene extends Phaser.Scene {
     this.itemsLeftText.setText(
       "Items Left: " + Math.max(0, this.itemsToDrop - this.itemsDropped)
     );
+
+    // Update debug graphics to show hitbox
+    if (this.player && this.player.body) {
+      this.debugGraphics.clear();
+      this.debugGraphics.lineStyle(2, 0xff0000);
+      const body = this.player.body as Phaser.Physics.Arcade.Body;
+      const isJumping = !(body as Phaser.Physics.Arcade.Body).blocked.down;
+      if (isJumping) {
+        // While jumping, extend hitbox down by 50px
+        const offsetX = this.player.flipX
+          ? -PLAYER_HITBOX_OFFSET_X
+          : PLAYER_HITBOX_OFFSET_X;
+        this.debugGraphics.strokeRect(
+          this.player.x - body.width / 2 + offsetX,
+          this.player.y - body.height / 2 + body.offset.y,
+          body.width,
+          PLAYER_JUMP_HITBOX_HEIGHT
+        );
+      } else {
+        // On ground, use normal hitbox
+        const offsetX = this.player.flipX
+          ? -PLAYER_HITBOX_OFFSET_X
+          : PLAYER_HITBOX_OFFSET_X;
+        this.debugGraphics.strokeRect(
+          this.player.x - body.width / 2 + offsetX,
+          this.player.y - body.height / 2 + body.offset.y,
+          body.width,
+          PLAYER_HITBOX_HEIGHT
+        );
+      }
+    }
   }
 }
