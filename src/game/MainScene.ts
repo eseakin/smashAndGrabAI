@@ -3,7 +3,7 @@ import Phaser from "phaser";
 const GAME_WIDTH = 1000;
 const GAME_HEIGHT = 700;
 const GROUND_HEIGHT = 40;
-const TOP_PLATFORM_HEIGHT = 5;
+const TOP_PLATFORM_HEIGHT = 10;
 const PLATFORM_WIDTH = 800;
 const PLAYER_COLOR = 0x1976d2;
 const PLAYER_SPEED = 200;
@@ -306,7 +306,7 @@ export class MainScene extends Phaser.Scene {
     // Top platform (dropper area)
     this.topPlatform = this.add.rectangle(
       GAME_WIDTH / 2,
-      TOP_PLATFORM_HEIGHT / 2 + 20 + 50 + 40, // Lowered by 40px
+      TOP_PLATFORM_HEIGHT / 2 + 150, // Added +40 to lower platform
       PLATFORM_WIDTH,
       TOP_PLATFORM_HEIGHT,
       0x6d4c41
@@ -436,18 +436,25 @@ export class MainScene extends Phaser.Scene {
     const platformTopY = this.topPlatform.y - this.topPlatform.height / 2;
     this.dropper = this.physics.add.sprite(
       GAME_WIDTH / 2,
-      platformTopY - 40,
+      platformTopY - 100,
       "golem-rest"
     );
-    this.dropper.setOrigin(0.5, 1); // bottom center
-    this.dropper.displayWidth = 80;
-    this.dropper.displayHeight = 80;
+    this.dropper.setOrigin(0.5, 0.5); // bottom center
+    this.dropper.displayWidth = 150;
+    this.dropper.displayHeight = 150;
     this.dropper.setCollideWorldBounds(true);
     this.dropper.play("golem-rest");
     // Set golem body size to match display size and align with origin
     if (this.dropper.body) {
-      this.dropper.body.setSize(80, 80);
-      this.dropper.body.setOffset(0, 270);
+      const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
+      dropperBody.setSize(150, 150); // Match display size
+      dropperBody.setOffset(0, -25); // No offset needed with bottom center origin
+      dropperBody.setGravityY(0); // Ensure no gravity
+      dropperBody.setImmovable(true); // Make it immovable
+      dropperBody.setBounce(0); // Prevent bouncing
+      dropperBody.setCollideWorldBounds(true); // Ensure world bounds collision
+      dropperBody.setAllowGravity(false); // Explicitly disable gravity
+      dropperBody.setVelocityY(0); // Ensure no vertical velocity
     }
 
     // Collisions
@@ -948,8 +955,8 @@ export class MainScene extends Phaser.Scene {
               Object.keys(ITEM_TYPES)
             ) as keyof typeof ITEM_TYPES;
             const item = this.physics.add.sprite(
-              this.dropper.x + (this.dropper.flipX ? 20 : -20),
-              this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2 - 10,
+              this.dropper.x + (this.dropper.flipX ? 50 : -50),
+              this.dropper.y + (itemType === "HARMFUL" ? 85 : 75), // Lower bullets by 10px
               itemType === "REQUIRED"
                 ? "coin-0"
                 : itemType === "BONUS"
@@ -957,18 +964,18 @@ export class MainScene extends Phaser.Scene {
                 : "bullet-1"
             );
             if (itemType === "REQUIRED") {
-              item.displayWidth = 30;
-              item.displayHeight = 30;
+              item.displayWidth = 40;
+              item.displayHeight = 40;
               item.play("coin-spin");
             } else if (itemType === "BONUS") {
-              item.displayWidth = 30;
-              item.displayHeight = 30;
+              item.displayWidth = 50; // Increased to 50
+              item.displayHeight = 50; // Increased to 50
               item.play("gem-sparkle");
             } else {
               // Bullet animation
-              item.displayWidth = 30 * (538 / 244); // Target width
-              item.displayHeight = 30; // Calculate height based on original aspect ratio
-              item.setAngle(90); // Rotate 90 degrees clockwise
+              item.displayWidth = 40 * (538 / 244);
+              item.displayHeight = 40;
+              item.setAngle(90);
               item.play("bullet-spin");
             }
             const itemBody = item.body as Phaser.Physics.Arcade.Body;
@@ -977,12 +984,12 @@ export class MainScene extends Phaser.Scene {
               itemBody.setAllowGravity(true);
               // Set physics body size to match display size
               if (itemType === "REQUIRED") {
-                itemBody.setSize(30, 30);
+                itemBody.setSize(40, 40);
               } else if (itemType === "BONUS") {
-                itemBody.setSize(30, 30);
+                itemBody.setSize(50, 50); // Increased to 50
               } else {
                 // For bullets, swap dimensions since we rotate 90 degrees
-                itemBody.setSize(30 * (538 / 244), 30);
+                itemBody.setSize(40 * (538 / 244), 40);
               }
               // Make item's collision point higher
               itemBody.setOffset(0.5, 0);
