@@ -82,6 +82,14 @@ export class MainScene extends Phaser.Scene {
     this.load.image("bg-layer2", "images/bg/MathWizBG/Layer2.png");
     this.load.image("bg-layer3", "images/bg/MathWizBG/Layer3.png");
 
+    // Explosion frames
+    for (let i = 1; i <= 7; i++) {
+      this.load.image(
+        `explosion-${i}`,
+        `images/Effects/Explosions/EXPLOSIONS${i}.png`
+      );
+    }
+
     // Coin frames
     this.load.image("coin-0", "images/Effects/Coin/Coin_0000000.png");
     this.load.image("coin-1", "images/Effects/Coin/Coin_0000001.png");
@@ -180,6 +188,16 @@ export class MainScene extends Phaser.Scene {
   }
 
   create() {
+    // Explosion animation
+    this.anims.create({
+      key: "explosion",
+      frames: Array.from({ length: 7 }, (_, i) => ({
+        key: `explosion-${i + 1}`,
+      })),
+      frameRate: 7.5, // Halved from 15
+      repeat: 0,
+    });
+
     // Coin animation
     this.anims.create({
       key: "coin-spin",
@@ -347,6 +365,7 @@ export class MainScene extends Phaser.Scene {
       frames: Array.from({ length: 7 }, (_, i) => ({ key: `wizard-die-${i}` })),
       frameRate: 12,
       repeat: 0,
+      hideOnComplete: false, // Keep the last frame visible
     });
     this.anims.create({
       key: "wizard-dizzy",
@@ -476,7 +495,8 @@ export class MainScene extends Phaser.Scene {
           fontFamily: "monospace",
         }
       )
-      .setOrigin(0, 1); // Set origin to bottom left
+      .setOrigin(0, 1) // Set origin to bottom left
+      .setDepth(0); // UI at bottom layer
 
     // Create hearts with 5px spacing
     const heartSize = 30;
@@ -495,9 +515,16 @@ export class MainScene extends Phaser.Scene {
             fontFamily: "monospace",
           }
         )
-        .setOrigin(1, 1); // Set origin to bottom right
+        .setOrigin(1, 1) // Set origin to bottom right
+        .setDepth(0); // UI at bottom layer
       this.livesTexts.push(heart);
     }
+
+    // Set player depth
+    this.player.setDepth(100);
+
+    // Set dropper depth
+    this.dropper.setDepth(100);
 
     this.gameOverText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
@@ -558,6 +585,11 @@ export class MainScene extends Phaser.Scene {
       this.gameOver = true;
       this.gameOverText.setText("Victory!\nFinal Score: " + this.score);
       this.gameOverText.setVisible(true);
+      // Start continuous throwing for victory
+      if (this.dropper.body) {
+        this.dropper.setVelocityX(0);
+        this.continuousThrow();
+      }
       return;
     }
     this.lives = LIVES_PER_ROUND;
@@ -569,15 +601,126 @@ export class MainScene extends Phaser.Scene {
 
   private gameOverHandler() {
     this.gameOver = true;
+    // Play dizzy animation and keep it playing
+    this.player.anims.play("wizard-dizzy", true);
     this.gameOverText.setText("Game Over!\nFinal Score: " + this.score);
     this.gameOverText.setVisible(true);
+
+    // Stop golem movement and make it stay in place
+    if (this.dropper.body) {
+      this.dropper.setVelocityX(0);
+      // Start continuous throwing animation
+      this.continuousThrow();
+    }
+  }
+
+  private continuousThrow() {
+    if (!this.gameOver) return;
+
+    // Play throw animation at 3x speed
+    this.dropper.anims.play("golem-throw", true);
+    this.dropper.anims.timeScale = 3; // 3x faster animation
+
+    this.dropper.once("animationcomplete-golem-throw", () => {
+      if (!this.gameOverText.text.includes("Victory")) {
+        // Only spawn bullets during game over
+        for (let i = 0; i < 3; i++) {
+          // Create 3 items per throw
+          const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
+          const spawnY = this.topPlatform.y + 50; // Spawn below the platform
+          const item = this.physics.add.sprite(randomX, spawnY, "bullet-1");
+
+          // Bullet settings
+          item.displayWidth = 40 * (538 / 244);
+          item.displayHeight = 40;
+          item.setAngle(90);
+          item.play("bullet-spin");
+
+          const itemBody = item.body as Phaser.Physics.Arcade.Body;
+          if (itemBody) {
+            itemBody.setGravityY(300);
+            itemBody.setAllowGravity(true);
+            itemBody.setSize(40 * (538 / 244), 40);
+            itemBody.setOffset(0.5, 0);
+          }
+
+          // Destroy item when it hits ground and create explosion
+          this.physics.add.collider(item, this.ground, () => {
+            this.createExplosionEffect(item.x, item.y);
+            item.destroy();
+          });
+        }
+      }
+
+      // Schedule next throw at 3x speed (333ms instead of 1000ms)
+      this.time.delayedCall(333, () => {
+        this.continuousThrow();
+      });
+    });
+
+    // Add extra item spawns between smashes
+    if (!this.gameOverText.text.includes("Victory")) {
+      // Only spawn bullets between smashes during game over
+      this.time.delayedCall(166, () => {
+        // Halfway between smashes
+        const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
+        const spawnY = this.topPlatform.y + 50;
+        const item = this.physics.add.sprite(randomX, spawnY, "bullet-1");
+
+        // Bullet settings
+        item.displayWidth = 40 * (538 / 244);
+        item.displayHeight = 40;
+        item.setAngle(90);
+        item.play("bullet-spin");
+
+        const itemBody = item.body as Phaser.Physics.Arcade.Body;
+        if (itemBody) {
+          itemBody.setGravityY(300);
+          itemBody.setAllowGravity(true);
+          itemBody.setSize(40 * (538 / 244), 40);
+          itemBody.setOffset(0.5, 0);
+        }
+
+        // Destroy item when it hits ground and create explosion
+        this.physics.add.collider(item, this.ground, () => {
+          this.createExplosionEffect(item.x, item.y);
+          item.destroy();
+        });
+      });
+    } else {
+      // During victory, spawn gems randomly
+      this.time.delayedCall(1, () => {
+        // Changed from 100 to 33 (3x more frequent)
+        // Spawn a single gem
+        const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
+        const spawnY = this.topPlatform.y + 50;
+        const gem = this.physics.add.sprite(randomX, spawnY, "gem-1");
+
+        // Gem settings
+        gem.displayWidth = 50;
+        gem.displayHeight = 50;
+        gem.play("gem-sparkle");
+
+        const gemBody = gem.body as Phaser.Physics.Arcade.Body;
+        if (gemBody) {
+          gemBody.setGravityY(300);
+          gemBody.setAllowGravity(true);
+          gemBody.setSize(50, 50);
+          gemBody.setOffset(0.5, 0);
+        }
+
+        this.physics.add.collider(gem, this.ground, () => {
+          gem.destroy();
+        });
+      });
+    }
   }
 
   init(data: { itemsEarned?: number }) {
     if (data.itemsEarned) {
       this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
     } else {
-      this.itemsToDrop = 20; // Double the default count
+      this.itemsToDrop = 5; // Changed from 20 to 5 for testing
     }
     this.itemsDropped = 0;
     this.itemsCaughtOrMissed = 0;
@@ -612,14 +755,16 @@ export class MainScene extends Phaser.Scene {
     // Only show score popup for positive points
     if (points > 0) {
       // Create a particle burst
-      const particles = this.add.particles(x, y, "blank", {
-        speed: { min: 50, max: 100 },
-        angle: { min: 0, max: 360 },
-        scale: { start: 0.5, end: 0 },
-        lifespan: 500,
-        quantity: 10,
-        tint: 0xffffff,
-      });
+      const particles = this.add
+        .particles(x, y, "blank", {
+          speed: { min: 50, max: 100 },
+          angle: { min: 0, max: 360 },
+          scale: { start: 0.5, end: 0 },
+          lifespan: 500,
+          quantity: 10,
+          tint: 0xffffff,
+        })
+        .setDepth(200); // Above everything
       // Create score popup with offset based on player direction
       const offsetX = this.player.flipX ? -20 : 20;
       const scorePopup = this.add
@@ -627,7 +772,8 @@ export class MainScene extends Phaser.Scene {
           fontSize: "36px", // Increased from 24px (50% larger)
           color: "#fff",
         })
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setDepth(200); // Above everything
       // Animate score popup
       this.tweens.add({
         targets: scorePopup,
@@ -646,14 +792,16 @@ export class MainScene extends Phaser.Scene {
 
   private createMissEffect(x: number, y: number) {
     // Create a particle burst
-    const particles = this.add.particles(x, y, "blank", {
-      speed: { min: 50, max: 100 },
-      angle: { min: 0, max: 360 },
-      scale: { start: 0.5, end: 0 },
-      lifespan: 500,
-      quantity: 10,
-      tint: 0xff0000,
-    });
+    const particles = this.add
+      .particles(x, y, "blank", {
+        speed: { min: 50, max: 100 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 0.5, end: 0 },
+        lifespan: 500,
+        quantity: 10,
+        tint: 0xff0000,
+      })
+      .setDepth(200); // Above everything
 
     // Create miss text with offset based on player direction
     const offsetX = this.player.flipX ? -20 : 20;
@@ -662,7 +810,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: "36px", // Increased from 24px (50% larger)
         color: "#ff0000",
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(200); // Above everything
 
     // Animate miss text
     this.tweens.add({
@@ -699,20 +848,34 @@ export class MainScene extends Phaser.Scene {
 
   private createHitEffect(x: number, y: number) {
     console.log("Creating hit effect at", x, y); // Debug log
-    const hitEffect = this.add.sprite(x, y + 30, "spell-hit"); // Changed from y + 40 to y + 30
-    hitEffect.setScale(0.2);
-    hitEffect.setDepth(9999);
-    hitEffect.setAlpha(1);
-    hitEffect.play("spell-hit");
-    hitEffect.once("animationcomplete", () => {
-      hitEffect.destroy();
-    });
+    this.createExplosionEffect(x, y);
   }
 
   private updateLivesText() {
-    // Remove all existing hearts
-    this.livesTexts.forEach((heart) => heart.destroy());
-    this.livesTexts = [];
+    // If we're losing a life, animate the last heart
+    if (this.livesTexts.length > this.lives) {
+      const lastHeart = this.livesTexts[this.livesTexts.length - 1];
+      lastHeart.setText("💔");
+
+      // Animate the broken heart
+      this.tweens.add({
+        targets: lastHeart,
+        y: lastHeart.y - 50, // Move up
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => {
+          lastHeart.destroy();
+        },
+      });
+    }
+
+    // Remove all existing hearts except the one being animated
+    this.livesTexts.forEach((heart, index) => {
+      if (index < this.lives) {
+        heart.destroy();
+      }
+    });
+    this.livesTexts = this.livesTexts.filter((_, index) => index >= this.lives);
 
     // Create new hearts
     const heartSize = 30;
@@ -731,6 +894,17 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  private createExplosionEffect(x: number, y: number) {
+    const explosion = this.add.sprite(x, y, "explosion-1");
+    explosion.setScale(0.075); // Increased from 0.05 (50% larger)
+    explosion.setDepth(200); // Ensure it appears above everything
+    explosion.setOrigin(0.5); // Center the explosion
+    explosion.play("explosion", true); // Force restart the animation
+    explosion.once("animationcomplete", () => {
+      explosion.destroy();
+    });
+  }
+
   update(time: number, delta: number) {
     // Subtle parallax backgrounds based on player x
     if (this.player && this.player.body) {
@@ -740,15 +914,10 @@ export class MainScene extends Phaser.Scene {
     }
 
     if (this.gameOver) {
-      // Stop dropper movement and clamp position
-      if (this.dropper.body) {
-        this.dropper.setVelocityX(0);
-        const platformLeft =
-          (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2;
-        const platformRight =
-          (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2;
-        if (this.dropper.x < platformLeft) this.dropper.x = platformLeft;
-        if (this.dropper.x > platformRight) this.dropper.x = platformRight;
+      // Only stop player movement
+      if (this.player.body) {
+        this.player.setVelocityX(0);
+        this.player.setVelocityY(0);
       }
       if (Phaser.Input.Keyboard.JustDown(this.boostKey)) {
         this.scene.restart();
@@ -991,6 +1160,8 @@ export class MainScene extends Phaser.Scene {
                 if (this.lives <= 0) {
                   this.gameOverHandler();
                 }
+              } else if (itemType === "HARMFUL") {
+                this.createExplosionEffect(item.x, item.y);
               }
               this.itemsCaughtOrMissed++;
               if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
