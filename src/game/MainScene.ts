@@ -22,7 +22,7 @@ const ITEM_HEIGHT = 20;
 const ITEM_COLOR = 0x00ff00;
 const BASE_DROP_INTERVAL = 2000; // ms
 const LIVES_PER_ROUND = 3;
-const ROUND_DURATION = 10000; // 10 seconds per round
+const ROUND_DURATION = 30000; // 30 seconds per round
 
 // Item types
 const ITEM_TYPES = {
@@ -68,6 +68,8 @@ export class MainScene extends Phaser.Scene {
   private bg3!: Phaser.GameObjects.TileSprite;
   private bg2!: Phaser.GameObjects.TileSprite;
   private bg1!: Phaser.GameObjects.TileSprite;
+  private isThrowing = false;
+  private dropperPrevVelocityX = 0;
 
   constructor() {
     super({ key: "MainScene" });
@@ -98,6 +100,14 @@ export class MainScene extends Phaser.Scene {
     this.load.spritesheet(
       "golem-rest",
       "images/Golem/brown-golem-rest-sm.png",
+      {
+        frameWidth: 375,
+        frameHeight: 375,
+      }
+    );
+    this.load.spritesheet(
+      "golem-attack",
+      "images/Golem/brown-golem-attack-sm.png",
       {
         frameWidth: 375,
         frameHeight: 375,
@@ -249,6 +259,15 @@ export class MainScene extends Phaser.Scene {
       }),
       frameRate: 8,
       repeat: -1,
+    });
+    this.anims.create({
+      key: "golem-throw",
+      frames: this.anims.generateFrameNumbers("golem-attack", {
+        start: 0,
+        end: 7,
+      }),
+      frameRate: 12,
+      repeat: 0,
     });
     // Place golem on top platform, shrink to fit
     const platformTopY = this.topPlatform.y - this.topPlatform.height / 2;
@@ -623,7 +642,7 @@ export class MainScene extends Phaser.Scene {
 
     // Dropper movement with increasing speed
     const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
-    if (dropperBody) {
+    if (dropperBody && !this.isThrowing) {
       const platformLeft =
         (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2;
       const platformRight =
@@ -652,61 +671,110 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Dropper animation
-    if (this.dropper.body && Math.abs(this.dropper.body.velocity.x) > 10) {
-      this.dropper.anims.play("golem-walk", true);
-      this.dropper.setFlipX(this.dropper.body.velocity.x > 0);
-    } else {
-      this.dropper.anims.play("golem-rest", true);
+    if (!this.isThrowing) {
+      if (this.dropper.body && Math.abs(this.dropper.body.velocity.x) > 10) {
+        this.dropper.anims.play("golem-walk", true);
+        this.dropper.setFlipX(this.dropper.body.velocity.x > 0);
+
+        // Dynamically adjust walk animation speed based on velocity
+        const minSpeed = DROPPER_MIN_SPEED;
+        const maxSpeed = DROPPER_MAX_SPEED;
+        const minFrameRate = 4; // slowest walk
+        const maxFrameRate = 16; // fastest walk
+        const speed = Math.abs(this.dropper.body.velocity.x);
+        // Linear interpolation between min and max frame rate
+        const frameRate =
+          minFrameRate +
+          ((speed - minSpeed) / (maxSpeed - minSpeed)) *
+            (maxFrameRate - minFrameRate);
+        // Clamp frameRate
+        const clampedFrameRate = Math.max(
+          minFrameRate,
+          Math.min(maxFrameRate, frameRate)
+        );
+        this.dropper.anims.msPerFrame = 1000 / clampedFrameRate;
+      } else {
+        this.dropper.anims.play("golem-rest", true);
+      }
     }
 
     // Only drop items if we haven't dropped all for this round
-    if (this.itemsDropped < this.itemsToDrop) {
+    if (this.itemsDropped < this.itemsToDrop && !this.isThrowing) {
       this.dropTimer += delta;
       const currentDropInterval =
         BASE_DROP_INTERVAL * Math.max(0.5, 1 - (this.round - 1) * 0.1);
       if (this.dropTimer >= currentDropInterval) {
         this.dropTimer = 0;
-        const itemType = Phaser.Math.RND.pick(
-          Object.keys(ITEM_TYPES)
-        ) as keyof typeof ITEM_TYPES;
-        const item = this.physics.add.sprite(
-          this.dropper.x,
-          this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
-          "blank"
-        );
-        item.displayWidth = ITEM_WIDTH;
-        item.displayHeight = ITEM_HEIGHT;
-        item.setTint(ITEM_TYPES[itemType].color);
-        const itemBody = item.body as Phaser.Physics.Arcade.Body;
-        if (itemBody) {
-          itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
-          itemBody.setAllowGravity(true);
+        this.isThrowing = true;
+
+        // Force stop the golem completely
+        if (this.dropper.body) {
+          this.dropperPrevVelocityX = this.dropper.body.velocity.x;
+          this.dropper.setVelocityX(0);
+          this.dropper.anims.stop();
+          this.dropper.anims.play("golem-rest", true);
         }
-        this.itemsDropped++;
-        this.physics.add.collider(item, this.ground, () => {
-          if (itemType === "REQUIRED") {
-            this.lives--;
-            this.livesText.setText("Lives: " + this.lives);
-            this.createMissEffect(item.x, item.y);
-            if (this.lives <= 0) {
-              this.gameOverHandler();
+
+        // Wait 0.25s before playing throw animation
+        this.time.delayedCall(250, () => {
+          this.dropper.anims.play("golem-throw", true);
+          this.dropper.once("animationcomplete-golem-throw", () => {
+            const itemType = Phaser.Math.RND.pick(
+              Object.keys(ITEM_TYPES)
+            ) as keyof typeof ITEM_TYPES;
+            const item = this.physics.add.sprite(
+              this.dropper.x + (this.dropper.flipX ? 20 : -20),
+              this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2 - 10,
+              "blank"
+            );
+            item.displayWidth = ITEM_WIDTH;
+            item.displayHeight = ITEM_HEIGHT;
+            item.setTint(ITEM_TYPES[itemType].color);
+            const itemBody = item.body as Phaser.Physics.Arcade.Body;
+            if (itemBody) {
+              itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
+              itemBody.setAllowGravity(true);
+              // Make item's collision point higher
+              itemBody.setOffset(0.5, 0);
             }
-          }
-          this.itemsCaughtOrMissed++;
-          if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
-            this.startNewRound();
-          }
-          item.destroy();
-        });
-        this.physics.add.overlap(item, this.player, () => {
-          this.score += ITEM_TYPES[itemType].points;
-          this.scoreText.setText("Score: " + this.score);
-          this.createCatchEffect(item.x, item.y, ITEM_TYPES[itemType].points);
-          this.itemsCaughtOrMissed++;
-          if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
-            this.startNewRound();
-          }
-          item.destroy();
+            this.itemsDropped++;
+            this.physics.add.collider(item, this.ground, () => {
+              if (itemType === "REQUIRED") {
+                this.lives--;
+                this.livesText.setText("Lives: " + this.lives);
+                this.createMissEffect(item.x, item.y);
+                if (this.lives <= 0) {
+                  this.gameOverHandler();
+                }
+              }
+              this.itemsCaughtOrMissed++;
+              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
+                this.startNewRound();
+              }
+              item.destroy();
+            });
+            this.physics.add.overlap(item, this.player, () => {
+              this.score += ITEM_TYPES[itemType].points;
+              this.scoreText.setText("Score: " + this.score);
+              this.createCatchEffect(
+                item.x,
+                item.y,
+                ITEM_TYPES[itemType].points
+              );
+              this.itemsCaughtOrMissed++;
+              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
+                this.startNewRound();
+              }
+              item.destroy();
+            });
+            // Wait 0.25s after throw before resuming movement
+            this.time.delayedCall(250, () => {
+              if (this.dropper.body) {
+                this.dropper.setVelocityX(this.dropperPrevVelocityX);
+              }
+              this.isThrowing = false;
+            });
+          });
         });
       }
     }
