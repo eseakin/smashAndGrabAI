@@ -80,7 +80,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image("bg-layer3", "images/bg/MathWizBG/Layer3.png");
 
     // Wizard sprite sheets
-    this.load.spritesheet("wizard-rest", "images/wizard/wiz-rest-sm.png", {
+    this.load.spritesheet("wizard-rest", "images/Wizard/wiz-rest-sm.png", {
       frameWidth: 200,
       frameHeight: 150,
     });
@@ -89,7 +89,7 @@ export class MainScene extends Phaser.Scene {
     // Golem sprite sheets
     this.load.spritesheet(
       "golem-walk",
-      "images/golem/brown-golem-walk-sm.png",
+      "images/Golem/brown-golem-walk-sm.png",
       {
         frameWidth: 375,
         frameHeight: 375,
@@ -97,7 +97,7 @@ export class MainScene extends Phaser.Scene {
     );
     this.load.spritesheet(
       "golem-rest",
-      "images/golem/brown-golem-rest-sm.png",
+      "images/Golem/brown-golem-rest-sm.png",
       {
         frameWidth: 375,
         frameHeight: 375,
@@ -511,10 +511,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
-    // Parallax background scroll (optional, e.g. based on player movement)
-    // this.bg1.tilePositionX += this.player.body.velocity.x * 0.2 * delta / 1000;
-    // this.bg2.tilePositionX += this.player.body.velocity.x * 0.1 * delta / 1000;
-    // this.bg3.tilePositionX += this.player.body.velocity.x * 0.05 * delta / 1000;
+    // Subtle parallax backgrounds based on player x
+    if (this.player && this.player.body) {
+      this.bg1.tilePositionX = this.player.x * 0.2;
+      this.bg2.tilePositionX = this.player.x * 0.1;
+      this.bg3.tilePositionX = this.player.x * 0.05;
+    }
 
     if (this.gameOver) {
       // Stop dropper movement and clamp position
