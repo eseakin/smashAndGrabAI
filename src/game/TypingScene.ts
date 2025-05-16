@@ -54,10 +54,11 @@ export class TypingScene extends Phaser.Scene {
     // Debug button
     const debugButton = document.createElement("button");
     debugButton.textContent = "Complete Sentence";
-    debugButton.style.position = "absolute";
-    debugButton.style.top = "10px";
-    debugButton.style.left = "50%";
-    debugButton.style.transform = "translateX(-50%)";
+    debugButton.style.position = "fixed";
+    debugButton.style.top = "24px";
+    debugButton.style.right = "32px";
+    debugButton.style.left = "unset";
+    debugButton.style.transform = "none";
     debugButton.style.zIndex = "1000";
     debugButton.style.padding = "8px 16px";
     debugButton.style.backgroundColor = "#4CAF50";

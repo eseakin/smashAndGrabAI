@@ -1,1 +1,36 @@
 /* Placeholder for game-only styles */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+body {
+  background: #222c36;
+  min-height: 100vh;
+  min-width: 100vw;
+  /* No flex centering needed, canvas will be centered by margin auto */
+}
+
+body > canvas {
+  display: block;
+  margin: auto;
+  box-shadow: 0 0 24px #0008;
+  border-radius: 8px;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+/* Remove .phaser-centerer and .game-centerer centering rules if present */
+.phaser-centerer,
+.game-centerer {
+  display: initial;
+  align-items: initial;
+  justify-content: initial;
+  min-height: initial;
+  min-width: initial;
+}

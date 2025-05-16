@@ -3,7 +3,7 @@ import Phaser from "phaser";
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 const GROUND_HEIGHT = 40;
-const TOP_PLATFORM_HEIGHT = 40;
+const TOP_PLATFORM_HEIGHT = 5;
 const PLATFORM_WIDTH = 600;
 const PLATFORM_X = (GAME_WIDTH - PLATFORM_WIDTH) / 2;
 const PLAYER_WIDTH = 60;
@@ -65,12 +65,46 @@ export class MainScene extends Phaser.Scene {
   private itemsDropped: number = 0;
   private itemsCaughtOrMissed: number = 0;
   private trailTimer = 0;
+  private bg3!: Phaser.GameObjects.TileSprite;
+  private bg2!: Phaser.GameObjects.TileSprite;
+  private bg1!: Phaser.GameObjects.TileSprite;
 
   constructor() {
     super({ key: "MainScene" });
   }
 
   preload() {
+    // Background layers
+    this.load.image("bg-layer1", "images/bg/MathWizBG/Layer1.png");
+    this.load.image("bg-layer2", "images/bg/MathWizBG/Layer2.png");
+    this.load.image("bg-layer3", "images/bg/MathWizBG/Layer3.png");
+
+    // Wizard sprite sheets
+    this.load.spritesheet("wizard-rest", "images/wizard/wiz-rest-sm.png", {
+      frameWidth: 200,
+      frameHeight: 150,
+    });
+    // Add more wizard animations as needed
+
+    // Golem sprite sheets
+    this.load.spritesheet(
+      "golem-walk",
+      "images/golem/brown-golem-walk-sm.png",
+      {
+        frameWidth: 375,
+        frameHeight: 375,
+      }
+    );
+    this.load.spritesheet(
+      "golem-rest",
+      "images/golem/brown-golem-rest-sm.png",
+      {
+        frameWidth: 375,
+        frameHeight: 375,
+      }
+    );
+    // Add more golem animations as needed
+
     // Create a blank texture for our sprites
     this.textures.generate("blank", {
       data: ["1"],
@@ -80,13 +114,28 @@ export class MainScene extends Phaser.Scene {
   }
 
   create() {
+    // Parallax backgrounds
+    this.bg3 = this.add
+      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer3")
+      .setOrigin(0)
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    this.bg2 = this.add
+      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer2")
+      .setOrigin(0)
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    this.bg1 = this.add
+      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer1")
+      .setOrigin(0)
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+
     // Debug button
     const debugButton = document.createElement("button");
     debugButton.textContent = "Skip to Next Round";
-    debugButton.style.position = "absolute";
-    debugButton.style.top = "10px";
-    debugButton.style.left = "50%";
-    debugButton.style.transform = "translateX(-50%)";
+    debugButton.style.position = "fixed";
+    debugButton.style.top = "24px";
+    debugButton.style.right = "32px";
+    debugButton.style.left = "unset";
+    debugButton.style.transform = "none";
     debugButton.style.zIndex = "1000";
     debugButton.style.padding = "8px 16px";
     debugButton.style.backgroundColor = "#4CAF50";
@@ -115,7 +164,7 @@ export class MainScene extends Phaser.Scene {
     // Top platform (dropper area)
     this.topPlatform = this.add.rectangle(
       GAME_WIDTH / 2,
-      TOP_PLATFORM_HEIGHT / 2 + 20 + 50,
+      TOP_PLATFORM_HEIGHT / 2 + 20 + 50 + 40, // Lowered by 40px
       PLATFORM_WIDTH,
       TOP_PLATFORM_HEIGHT,
       0x6d4c41
@@ -142,37 +191,75 @@ export class MainScene extends Phaser.Scene {
     );
     this.physics.add.existing(this.rightWall, true);
 
-    // Player (rectangle placeholder)
+    // Player (wizard)
+    this.anims.create({
+      key: "wizard-rest",
+      frames: this.anims.generateFrameNumbers("wizard-rest", {
+        start: 0,
+        end: 7,
+      }),
+      frameRate: 8,
+      repeat: -1,
+    });
+    // Placeholder: use rest frames for walk until walk sheet is available
+    this.anims.create({
+      key: "wizard-walk",
+      frames: this.anims.generateFrameNumbers("wizard-rest", {
+        start: 0,
+        end: 7,
+      }),
+      frameRate: 12,
+      repeat: -1,
+    });
     this.player = this.physics.add.sprite(
       GAME_WIDTH / 2,
-      GAME_HEIGHT - GROUND_HEIGHT - PLAYER_HEIGHT / 2,
-      "blank"
+      GAME_HEIGHT - GROUND_HEIGHT - 75, // 150/2 for feet on ground
+      "wizard-rest"
     );
-    this.player.displayWidth = PLAYER_WIDTH;
-    this.player.displayHeight = PLAYER_HEIGHT;
-    this.player.setTint(PLAYER_COLOR);
+    this.player.displayWidth = 80;
+    this.player.displayHeight = 60;
     this.player.setCollideWorldBounds(true);
-    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-    if (playerBody) {
-      playerBody.setGravityY(600); // Enable gravity for jumping
-      playerBody.setAllowGravity(true);
-      this.player.setImmovable(false);
+    this.player.play("wizard-rest");
+
+    if (this.player.body) {
+      this.player.body.setOffset(0, -40);
     }
 
-    // Dropper (rectangle placeholder)
-    const platformCenterY = TOP_PLATFORM_HEIGHT / 2 + 20 + 50;
-    const platformTopY = platformCenterY - TOP_PLATFORM_HEIGHT / 2;
-    const dropperY = platformTopY - DROPPER_HEIGHT / 2;
-    this.dropper = this.physics.add.sprite(GAME_WIDTH / 2, dropperY, "blank");
-    this.dropper.displayWidth = DROPPER_WIDTH;
-    this.dropper.displayHeight = DROPPER_HEIGHT;
-    this.dropper.setTint(DROPPER_COLOR);
+    // Dropper (golem)
+    this.anims.create({
+      key: "golem-rest",
+      frames: this.anims.generateFrameNumbers("golem-rest", {
+        start: 0,
+        end: 11,
+      }),
+      frameRate: 6,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: "golem-walk",
+      frames: this.anims.generateFrameNumbers("golem-walk", {
+        start: 0,
+        end: 11,
+      }),
+      frameRate: 8,
+      repeat: -1,
+    });
+    // Place golem on top platform, shrink to fit
+    const platformTopY = this.topPlatform.y - this.topPlatform.height / 2;
+    this.dropper = this.physics.add.sprite(
+      GAME_WIDTH / 2,
+      platformTopY - 40,
+      "golem-rest"
+    );
+    this.dropper.setOrigin(0.5, 1); // bottom center
+    this.dropper.displayWidth = 80;
+    this.dropper.displayHeight = 80;
     this.dropper.setCollideWorldBounds(true);
-    const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
-    if (dropperBody) {
-      dropperBody.setGravityY(0);
-      dropperBody.setAllowGravity(false);
-      this.dropper.setImmovable(false);
+    this.dropper.play("golem-rest");
+    // Set golem body size to match display size and align with origin
+    if (this.dropper.body) {
+      this.dropper.body.setSize(80, 80);
+      this.dropper.body.setOffset(0, 270);
     }
 
     // Collisions
@@ -199,27 +286,53 @@ export class MainScene extends Phaser.Scene {
     );
 
     // UI Elements
-    this.scoreText = this.add.text(16, 16, "Score: 0", {
-      fontSize: "18px",
-      color: "#000",
+    const scoreboardY = 16;
+    const spacing = 140;
+    this.scoreText = this.add.text(32, scoreboardY, "Score: 0", {
+      fontSize: "20px",
+      color: "#fff",
+      fontFamily: "monospace",
     });
-    this.livesText = this.add.text(16, 48, "Lives: " + this.lives, {
-      fontSize: "18px",
-      color: "#000",
-    });
-    this.roundText = this.add.text(
-      GAME_WIDTH - 200,
-      16,
-      "Round: " + this.round,
+    this.livesText = this.add.text(
+      32 + spacing,
+      scoreboardY,
+      "Lives: " + this.lives,
       {
-        fontSize: "18px",
-        color: "#000",
+        fontSize: "20px",
+        color: "#fff",
+        fontFamily: "monospace",
       }
     );
-    this.roundTimerText = this.add.text(GAME_WIDTH - 200, 48, "Time: 30", {
-      fontSize: "18px",
-      color: "#000",
-    });
+    this.roundText = this.add.text(
+      32 + spacing * 2,
+      scoreboardY,
+      "Round: " + this.round,
+      {
+        fontSize: "20px",
+        color: "#fff",
+        fontFamily: "monospace",
+      }
+    );
+    this.roundTimerText = this.add.text(
+      32 + spacing * 3,
+      scoreboardY,
+      "Time: 30",
+      {
+        fontSize: "20px",
+        color: "#fff",
+        fontFamily: "monospace",
+      }
+    );
+    this.itemsLeftText = this.add.text(
+      32 + spacing * 4,
+      scoreboardY,
+      "Items Left: 0",
+      {
+        fontSize: "20px",
+        color: "#fff",
+        fontFamily: "monospace",
+      }
+    );
     this.gameOverText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
         fontSize: "64px",
@@ -227,10 +340,6 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setVisible(false);
-    this.itemsLeftText = this.add.text(GAME_WIDTH - 200, 80, "Items Left: 0", {
-      fontSize: "18px",
-      color: "#000",
-    });
     this.countdownText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
         fontSize: "96px",
@@ -332,38 +441,38 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createCatchEffect(x: number, y: number, points: number) {
-    // Create a particle burst
-    const particles = this.add.particles(x, y, "blank", {
-      speed: { min: 50, max: 100 },
-      angle: { min: 0, max: 360 },
-      scale: { start: 0.5, end: 0 },
-      lifespan: 500,
-      quantity: 10,
-      tint: 0xffffff,
-    });
-
-    // Create score popup
-    const scorePopup = this.add
-      .text(x, y, "+" + points, {
-        fontSize: "24px",
-        color: "#fff",
-      })
-      .setOrigin(0.5);
-
-    // Animate score popup
-    this.tweens.add({
-      targets: scorePopup,
-      y: y - 50,
-      alpha: 0,
-      duration: 1000,
-      onComplete: () => {
-        scorePopup.destroy();
-        particles.destroy();
-      },
-    });
-
-    // Screen shake
-    this.cameras.main.shake(100, 0.005);
+    // Only show score popup for positive points
+    if (points > 0) {
+      // Create a particle burst
+      const particles = this.add.particles(x, y, "blank", {
+        speed: { min: 50, max: 100 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 0.5, end: 0 },
+        lifespan: 500,
+        quantity: 10,
+        tint: 0xffffff,
+      });
+      // Create score popup
+      const scorePopup = this.add
+        .text(x, y, "+" + points, {
+          fontSize: "24px",
+          color: "#fff",
+        })
+        .setOrigin(0.5);
+      // Animate score popup
+      this.tweens.add({
+        targets: scorePopup,
+        y: y - 50,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => {
+          scorePopup.destroy();
+          particles.destroy();
+        },
+      });
+      // Screen shake
+      this.cameras.main.shake(100, 0.005);
+    }
   }
 
   private createMissEffect(x: number, y: number) {
@@ -402,7 +511,22 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    // Parallax background scroll (optional, e.g. based on player movement)
+    // this.bg1.tilePositionX += this.player.body.velocity.x * 0.2 * delta / 1000;
+    // this.bg2.tilePositionX += this.player.body.velocity.x * 0.1 * delta / 1000;
+    // this.bg3.tilePositionX += this.player.body.velocity.x * 0.05 * delta / 1000;
+
     if (this.gameOver) {
+      // Stop dropper movement and clamp position
+      if (this.dropper.body) {
+        this.dropper.setVelocityX(0);
+        const platformLeft =
+          (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2;
+        const platformRight =
+          (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2;
+        if (this.dropper.x < platformLeft) this.dropper.x = platformLeft;
+        if (this.dropper.x > platformRight) this.dropper.x = platformRight;
+      }
       if (Phaser.Input.Keyboard.JustDown(this.boostKey)) {
         this.scene.restart();
       }
@@ -510,6 +634,21 @@ export class MainScene extends Phaser.Scene {
         );
       }
       this.dropper.setVelocityX(this.dropperSpeed);
+    }
+
+    // Player animation
+    if (this.cursors.left.isDown || this.cursors.right.isDown) {
+      this.player.anims.play("wizard-walk", true);
+    } else {
+      this.player.anims.play("wizard-rest", true);
+    }
+
+    // Dropper animation
+    if (this.dropper.body && Math.abs(this.dropper.body.velocity.x) > 10) {
+      this.dropper.anims.play("golem-walk", true);
+      this.dropper.setFlipX(this.dropper.body.velocity.x > 0);
+    } else {
+      this.dropper.anims.play("golem-rest", true);
     }
 
     // Only drop items if we haven't dropped all for this round
