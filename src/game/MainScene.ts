@@ -115,18 +115,24 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     // Parallax backgrounds
+    const fgImage = this.textures.get("bg-layer1").getSourceImage();
+    const fgHeight = fgImage.height;
     this.bg3 = this.add
       .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer3")
       .setOrigin(0)
-      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
+      .setScale(1);
     this.bg2 = this.add
       .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer2")
       .setOrigin(0)
-      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
+      .setScale(1);
+    // Foreground only at the bottom
     this.bg1 = this.add
-      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer1")
-      .setOrigin(0)
-      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+      .tileSprite(0, GAME_HEIGHT, GAME_WIDTH, fgHeight, "bg-layer1")
+      .setOrigin(0, 1)
+      .setDisplaySize(GAME_WIDTH, fgHeight)
+      .setScale(1);
 
     // Debug button
     const debugButton = document.createElement("button");
