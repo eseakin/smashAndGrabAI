@@ -2,8 +2,8 @@ import Phaser from "phaser";
 
 const GAME_WIDTH = 1000;
 const GAME_HEIGHT = 700;
-const GROUND_HEIGHT = 40;
-const TOP_PLATFORM_HEIGHT = 10;
+const GROUND_HEIGHT = 20;
+const TOP_PLATFORM_HEIGHT = 20;
 const PLATFORM_WIDTH = 800;
 const PLAYER_COLOR = 0x1976d2;
 const PLAYER_SPEED = 200;
@@ -46,7 +46,7 @@ export class MainScene extends Phaser.Scene {
   private score = 0;
   private scoreText!: Phaser.GameObjects.Text;
   private lives = LIVES_PER_ROUND;
-  private livesText!: Phaser.GameObjects.Text;
+  private livesTexts: Phaser.GameObjects.Text[] = [];
   private round = 1;
   private roundText!: Phaser.GameObjects.Text;
   private roundTimer = 0;
@@ -270,26 +270,6 @@ export class MainScene extends Phaser.Scene {
       .setDisplaySize(GAME_WIDTH, fgHeight)
       .setScale(1.05);
 
-    // Debug button
-    const debugButton = document.createElement("button");
-    debugButton.textContent = "Skip to Next Round";
-    debugButton.style.position = "fixed";
-    debugButton.style.top = "24px";
-    debugButton.style.right = "32px";
-    debugButton.style.left = "unset";
-    debugButton.style.transform = "none";
-    debugButton.style.zIndex = "1000";
-    debugButton.style.padding = "8px 16px";
-    debugButton.style.backgroundColor = "#4CAF50";
-    debugButton.style.color = "white";
-    debugButton.style.border = "none";
-    debugButton.style.borderRadius = "4px";
-    debugButton.style.cursor = "pointer";
-    debugButton.onclick = () => {
-      this.startNewRound();
-    };
-    document.body.appendChild(debugButton);
-
     // Background color
     this.cameras.main.setBackgroundColor(0xa0d8ef);
 
@@ -420,7 +400,7 @@ export class MainScene extends Phaser.Scene {
         start: 0,
         end: 11,
       }),
-      frameRate: 8,
+      frameRate: 12,
       repeat: -1,
     });
     this.anims.create({
@@ -485,50 +465,40 @@ export class MainScene extends Phaser.Scene {
     // UI Elements
     const scoreboardY = 16;
     const spacing = 140;
-    this.scoreText = this.add.text(32, scoreboardY, "Score: 0", {
-      fontSize: "20px",
-      color: "#fff",
-      fontFamily: "monospace",
-    });
-    this.livesText = this.add.text(
-      32 + spacing,
-      scoreboardY,
-      "❤️".repeat(this.lives),
-      {
-        fontSize: "20px",
-        fontFamily: "monospace",
-      }
-    );
-    this.roundText = this.add.text(
-      32 + spacing * 2,
-      scoreboardY,
-      "Round: " + this.round,
-      {
-        fontSize: "20px",
-        color: "#fff",
-        fontFamily: "monospace",
-      }
-    );
-    this.roundTimerText = this.add.text(
-      32 + spacing * 3,
-      scoreboardY,
-      "Time: 60",
-      {
-        fontSize: "20px",
-        color: "#fff",
-        fontFamily: "monospace",
-      }
-    );
-    this.itemsLeftText = this.add.text(
-      32 + spacing * 4,
-      scoreboardY,
-      "Items Left: 0",
-      {
-        fontSize: "20px",
-        color: "#fff",
-        fontFamily: "monospace",
-      }
-    );
+    this.scoreText = this.add
+      .text(
+        32, // Left side
+        GAME_HEIGHT - 32, // Bottom
+        "Score: 0",
+        {
+          fontSize: "30px",
+          color: "#fff",
+          fontFamily: "monospace",
+        }
+      )
+      .setOrigin(0, 1); // Set origin to bottom left
+
+    // Create hearts with 5px spacing
+    const heartSize = 30;
+    const heartSpacing = 5;
+    const startX = GAME_WIDTH - 32; // Back to right side
+    const startY = GAME_HEIGHT - 32;
+
+    for (let i = 0; i < this.lives; i++) {
+      const heart = this.add
+        .text(
+          startX - i * (heartSize + heartSpacing), // Move left for each heart
+          startY,
+          "❤️",
+          {
+            fontSize: "30px",
+            fontFamily: "monospace",
+          }
+        )
+        .setOrigin(1, 1); // Set origin to bottom right
+      this.livesTexts.push(heart);
+    }
+
     this.gameOverText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
         fontSize: "64px",
@@ -593,7 +563,6 @@ export class MainScene extends Phaser.Scene {
     this.lives = LIVES_PER_ROUND;
     this.roundTimer = 0;
     this.updateLivesText();
-    this.roundText.setText("Round: " + this.round);
     this.gameOver = false;
     this.gameOverText.setVisible(false);
   }
@@ -651,10 +620,11 @@ export class MainScene extends Phaser.Scene {
         quantity: 10,
         tint: 0xffffff,
       });
-      // Create score popup
+      // Create score popup with offset based on player direction
+      const offsetX = this.player.flipX ? -20 : 20;
       const scorePopup = this.add
-        .text(x, y, "+" + points, {
-          fontSize: "24px",
+        .text(x + offsetX, y, "+" + points, {
+          fontSize: "36px", // Increased from 24px (50% larger)
           color: "#fff",
         })
         .setOrigin(0.5);
@@ -685,10 +655,11 @@ export class MainScene extends Phaser.Scene {
       tint: 0xff0000,
     });
 
-    // Create miss text
+    // Create miss text with offset based on player direction
+    const offsetX = this.player.flipX ? -20 : 20;
     const missText = this.add
-      .text(x, y, "💔", {
-        fontSize: "24px",
+      .text(x + offsetX, y, "💔", {
+        fontSize: "36px", // Increased from 24px (50% larger)
         color: "#ff0000",
       })
       .setOrigin(0.5);
@@ -739,7 +710,25 @@ export class MainScene extends Phaser.Scene {
   }
 
   private updateLivesText() {
-    this.livesText.setText("❤️".repeat(this.lives));
+    // Remove all existing hearts
+    this.livesTexts.forEach((heart) => heart.destroy());
+    this.livesTexts = [];
+
+    // Create new hearts
+    const heartSize = 30;
+    const heartSpacing = 5;
+    const startX = GAME_WIDTH - 32; // Back to right side
+    const startY = GAME_HEIGHT - 32;
+
+    for (let i = 0; i < this.lives; i++) {
+      const heart = this.add
+        .text(startX - i * (heartSize + heartSpacing), startY, "❤️", {
+          fontSize: "30px",
+          fontFamily: "monospace",
+        })
+        .setOrigin(1, 1); // Set origin to bottom right
+      this.livesTexts.push(heart);
+    }
   }
 
   update(time: number, delta: number) {
@@ -805,7 +794,6 @@ export class MainScene extends Phaser.Scene {
       0,
       Math.ceil((ROUND_DURATION - this.roundTimer) / 1000)
     );
-    this.roundTimerText.setText("Time: " + timeLeft);
 
     if (this.roundTimer >= ROUND_DURATION) {
       this.startNewRound();
@@ -869,9 +857,9 @@ export class MainScene extends Phaser.Scene {
     const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
     if (dropperBody && !this.isThrowing) {
       const platformLeft =
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2;
+        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2 + 20; // Added 20px
       const platformRight =
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2;
+        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2 - 20; // Subtracted 20px
       if (this.dropper.x <= platformLeft) {
         this.dropper.x = platformLeft;
         this.dropperSpeed = Phaser.Math.Between(
@@ -947,8 +935,8 @@ export class MainScene extends Phaser.Scene {
           this.dropper.anims.play("golem-rest", true);
         }
 
-        // Wait 0.25s before playing throw animation
-        this.time.delayedCall(250, () => {
+        // Wait 0.01s before playing throw animation
+        this.time.delayedCall(10, () => {
           this.dropper.anims.play("golem-throw", true);
           this.dropper.once("animationcomplete-golem-throw", () => {
             const itemType = Phaser.Math.RND.pick(
@@ -956,7 +944,7 @@ export class MainScene extends Phaser.Scene {
             ) as keyof typeof ITEM_TYPES;
             const item = this.physics.add.sprite(
               this.dropper.x + (this.dropper.flipX ? 50 : -50),
-              this.dropper.y + (itemType === "HARMFUL" ? 85 : 75), // Lower bullets by 10px
+              this.dropper.y + (itemType === "HARMFUL" ? 125 : 115), // Lowered all by 10px
               itemType === "REQUIRED"
                 ? "coin-0"
                 : itemType === "BONUS"
@@ -1046,9 +1034,5 @@ export class MainScene extends Phaser.Scene {
         });
       }
     }
-
-    this.itemsLeftText.setText(
-      "Items Left: " + Math.max(0, this.itemsToDrop - this.itemsDropped)
-    );
   }
 }
