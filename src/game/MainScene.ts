@@ -22,7 +22,7 @@ const ITEM_HEIGHT = 20;
 const ITEM_COLOR = 0x00ff00;
 const BASE_DROP_INTERVAL = 2000; // ms
 const LIVES_PER_ROUND = 3;
-const ROUND_DURATION = 30000; // 30 seconds per round
+const ROUND_DURATION = 60000; // 60 seconds per round
 
 // Item types
 const ITEM_TYPES = {
@@ -153,21 +153,39 @@ export class MainScene extends Phaser.Scene {
     const fgImage = this.textures.get("bg-layer1").getSourceImage();
     const fgHeight = fgImage.height;
     this.bg3 = this.add
-      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer3")
-      .setOrigin(0)
+      .tileSprite(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        "bg-layer3"
+      )
+      .setOrigin(0.5)
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
-      .setScale(1);
+      .setScale(1.05);
     this.bg2 = this.add
-      .tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, "bg-layer2")
-      .setOrigin(0)
+      .tileSprite(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        "bg-layer2"
+      )
+      .setOrigin(0.5)
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
-      .setScale(1);
+      .setScale(1.05);
     // Foreground only at the bottom
     this.bg1 = this.add
-      .tileSprite(0, GAME_HEIGHT, GAME_WIDTH, fgHeight, "bg-layer1")
-      .setOrigin(0, 1)
+      .tileSprite(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT,
+        GAME_WIDTH,
+        fgHeight,
+        "bg-layer1"
+      )
+      .setOrigin(0.5, 1)
       .setDisplaySize(GAME_WIDTH, fgHeight)
-      .setScale(1);
+      .setScale(1.05);
 
     // Debug button
     const debugButton = document.createElement("button");
@@ -195,9 +213,9 @@ export class MainScene extends Phaser.Scene {
     // Ground platform (player area)
     this.ground = this.add.rectangle(
       GAME_WIDTH / 2,
-      GAME_HEIGHT - GROUND_HEIGHT / 2,
-      GAME_WIDTH,
-      GROUND_HEIGHT,
+      GAME_HEIGHT - GROUND_HEIGHT / 2 + 20, // Move down by 20px (half of the extra height)
+      GAME_WIDTH + 40, // Extend 20px on each side
+      GROUND_HEIGHT + 40, // Extend 40px down
       0x4e342e
     );
     this.physics.add.existing(this.ground, true);
@@ -264,6 +282,9 @@ export class MainScene extends Phaser.Scene {
 
     if (this.player.body) {
       this.player.body.setOffset(0, -40);
+      const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+      playerBody.setGravityY(500); // Increased from 500
+      playerBody.setBounce(0.2); // Reduced from 0.3
     }
 
     // Dropper (golem)
@@ -366,7 +387,7 @@ export class MainScene extends Phaser.Scene {
     this.roundTimerText = this.add.text(
       32 + spacing * 3,
       scoreboardY,
-      "Time: 30",
+      "Time: 60",
       {
         fontSize: "20px",
         color: "#fff",
@@ -435,7 +456,10 @@ export class MainScene extends Phaser.Scene {
 
   private startNewRound() {
     this.round++;
-    if (this.round > this.maxRounds) {
+    if (
+      this.round > this.maxRounds ||
+      this.itemsCaughtOrMissed >= this.itemsToDrop
+    ) {
       this.gameOver = true;
       this.gameOverText.setText("Victory!\nFinal Score: " + this.score);
       this.gameOverText.setVisible(true);
@@ -447,7 +471,6 @@ export class MainScene extends Phaser.Scene {
     this.roundText.setText("Round: " + this.round);
     this.gameOver = false;
     this.gameOverText.setVisible(false);
-    this.scene.start("TypingScene");
   }
 
   private gameOverHandler() {
@@ -458,9 +481,9 @@ export class MainScene extends Phaser.Scene {
 
   init(data: { itemsEarned?: number }) {
     if (data.itemsEarned) {
-      this.itemsToDrop = data.itemsEarned;
+      this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
     } else {
-      this.itemsToDrop = 10; // fallback for first round or debug
+      this.itemsToDrop = 20; // Double the default count
     }
     this.itemsDropped = 0;
     this.itemsCaughtOrMissed = 0;
@@ -557,6 +580,13 @@ export class MainScene extends Phaser.Scene {
 
     // Screen shake
     this.cameras.main.shake(200, 0.01);
+  }
+
+  private handleJump() {
+    if (this.player.body && this.player.body.touching.down) {
+      this.player.setVelocityY(-400); // Reduced from -500
+      this.player.anims.play("wizard-jump", true);
+    }
   }
 
   update(time: number, delta: number) {
