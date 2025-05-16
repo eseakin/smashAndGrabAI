@@ -1,10 +1,10 @@
 import Phaser from "phaser";
 
-const GAME_WIDTH = 800;
-const GAME_HEIGHT = 600;
+const GAME_WIDTH = 1000;
+const GAME_HEIGHT = 700;
 const GROUND_HEIGHT = 40;
 const TOP_PLATFORM_HEIGHT = 5;
-const PLATFORM_WIDTH = 600;
+const PLATFORM_WIDTH = 800;
 const PLAYER_COLOR = 0x1976d2;
 const PLAYER_SPEED = 200;
 const PLAYER_BOOST_MULTIPLIER = 1.5;
@@ -71,7 +71,6 @@ export class MainScene extends Phaser.Scene {
   private isStunned = false;
   private stunTimer = 0;
   private readonly STUN_DURATION = 1000; // 1 second stun
-  private debugGraphics!: Phaser.GameObjects.Graphics; // Add debug graphics
 
   constructor() {
     super({ key: "MainScene" });
@@ -105,16 +104,45 @@ export class MainScene extends Phaser.Scene {
       frameHeight: 256,
     });
 
-    // Wizard sprite sheets
-    this.load.spritesheet("wizard-rest", "images/Wizard/wiz-rest-sm.png", {
-      frameWidth: 200,
-      frameHeight: 150,
-    });
-    this.load.spritesheet("wizard-hurt", "images/Wizard/wiz-hurt-sm.png", {
-      frameWidth: 200,
-      frameHeight: 150,
-    });
-    // Add more wizard animations as needed
+    // Wizard sprites
+    // Idle animation
+    for (let i = 1; i <= 8; i++) {
+      this.load.image(
+        `wizard-rest-${i - 1}`,
+        `images/Wizard/Wizard character sprites/RESIZE/Idle (${i}).png`
+      );
+    }
+    // Hurt animation
+    this.load.image(
+      "wizard-hurt-0",
+      "images/Wizard/Wizard character sprites/RESIZE/Hurt.png"
+    );
+    // Run animation
+    for (let i = 1; i <= 6; i++) {
+      this.load.image(
+        `wizard-walk-${i - 1}`,
+        `images/Wizard/Wizard character sprites/RESIZE/Run (${i}).png`
+      );
+    }
+    // Jump animation
+    this.load.image(
+      "wizard-jump-0",
+      "images/Wizard/Wizard character sprites/RESIZE/Jump.png"
+    );
+    // Die animation
+    for (let i = 1; i <= 7; i++) {
+      this.load.image(
+        `wizard-die-${i - 1}`,
+        `images/Wizard/Wizard character sprites/RESIZE/Die (${i}).png`
+      );
+    }
+    // Dizzy animation
+    for (let i = 1; i <= 3; i++) {
+      this.load.image(
+        `wizard-dizzy-${i - 1}`,
+        `images/Wizard/Wizard character sprites/RESIZE/Dizzy (${i}).png`
+      );
+    }
 
     // Golem sprite sheets
     this.load.spritesheet(
@@ -308,38 +336,59 @@ export class MainScene extends Phaser.Scene {
     // Player (wizard)
     this.anims.create({
       key: "wizard-rest",
-      frames: this.anims.generateFrameNumbers("wizard-rest", {
-        start: 0,
-        end: 7,
-      }),
+      frames: Array.from({ length: 8 }, (_, i) => ({
+        key: `wizard-rest-${i}`,
+      })),
       frameRate: 8,
       repeat: -1,
     });
     this.anims.create({
       key: "wizard-hurt",
-      frames: this.anims.generateFrameNumbers("wizard-hurt", {
-        start: 0,
-        end: 7,
-      }),
+      frames: [{ key: "wizard-hurt-0" }],
       frameRate: 12,
       repeat: 0,
     });
+    this.anims.create({
+      key: "wizard-walk",
+      frames: Array.from({ length: 6 }, (_, i) => ({
+        key: `wizard-walk-${i}`,
+      })),
+      frameRate: 12,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: "wizard-jump",
+      frames: [{ key: "wizard-jump-0" }],
+      frameRate: 12,
+      repeat: 0,
+    });
+    this.anims.create({
+      key: "wizard-die",
+      frames: Array.from({ length: 7 }, (_, i) => ({ key: `wizard-die-${i}` })),
+      frameRate: 12,
+      repeat: 0,
+    });
+    this.anims.create({
+      key: "wizard-dizzy",
+      frames: Array.from({ length: 3 }, (_, i) => ({
+        key: `wizard-dizzy-${i}`,
+      })),
+      frameRate: 8,
+      repeat: -1,
+    });
     // Calculate y so bottom of hitbox is at ground, then raise by 15px
-    const playerDisplayHeight = 60;
-    const playerHitboxHeight = 70;
-    const playerY =
-      GAME_HEIGHT -
-      GROUND_HEIGHT -
-      playerDisplayHeight / 2 -
-      (playerHitboxHeight - playerDisplayHeight) / 2 -
-      15;
+    const playerDisplayHeight = 120; // Match the new sprite height
+    const playerDisplayWidth = 150; // Match the new sprite width
+    const playerHitboxHeight = 100; // Slightly smaller than display height
+    const playerY = GAME_HEIGHT - GROUND_HEIGHT - playerHitboxHeight / 2 - 20; // Add 20px offset to raise the player
     this.player = this.physics.add.sprite(
       GAME_WIDTH / 2,
       playerY,
-      "wizard-rest"
+      "wizard-rest-0" // Use the first frame of the idle animation
     );
-    this.player.displayWidth = 80;
+    this.player.displayWidth = playerDisplayWidth;
     this.player.displayHeight = playerDisplayHeight;
+    this.player.setOrigin(0.5, 0.5); // Reset to default center origin
     this.player.setCollideWorldBounds(true);
     this.player.play("wizard-rest");
 
@@ -347,11 +396,12 @@ export class MainScene extends Phaser.Scene {
       const offsetX = this.player.flipX
         ? -PLAYER_HITBOX_OFFSET_X
         : PLAYER_HITBOX_OFFSET_X;
-      this.player.body.setSize(100, 110);
-      this.player.body.setOffset(offsetX, 0); // Mirror offset if flipped
+      this.player.body.setSize(100, 100); // Slightly smaller than display size for better feel
+      this.player.body.setOffset(25, 20); // Center the hitbox in the sprite
       const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
       playerBody.setGravityY(500);
       playerBody.setBounce(0.2);
+      playerBody.setCollideWorldBounds(true);
     }
 
     // Dropper (golem)
@@ -401,7 +451,9 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Collisions
-    this.physics.add.collider(this.player, this.ground);
+    this.physics.add.collider(this.player, this.ground, () => {
+      // Optional: Add any ground collision effects here
+    });
     this.physics.add.collider(this.player, this.leftWall);
     this.physics.add.collider(this.player, this.rightWall);
     this.physics.add.collider(this.dropper, this.topPlatform);
@@ -489,10 +541,6 @@ export class MainScene extends Phaser.Scene {
       .setVisible(false);
 
     this.startCountdown();
-
-    // Add debug graphics
-    this.debugGraphics = this.add.graphics();
-    this.debugGraphics.setDepth(9999);
   }
 
   private startCountdown() {
@@ -664,8 +712,9 @@ export class MainScene extends Phaser.Scene {
   private stunPlayer() {
     this.isStunned = true;
     this.stunTimer = this.STUN_DURATION;
-    this.player.anims.play("wizard-hurt", true);
-    this.player.once("animationcomplete-wizard-hurt", () => {
+    this.player.anims.play("wizard-dizzy", true);
+    // Add a timer to stop the animation when stun ends
+    this.time.delayedCall(this.STUN_DURATION, () => {
       this.player.anims.play("wizard-rest", true);
     });
   }
@@ -797,6 +846,14 @@ export class MainScene extends Phaser.Scene {
           isOnGround
         ) {
           this.player.setVelocityY(-300);
+          this.player.play("wizard-jump", true);
+        }
+        // Return to idle when landing
+        if (
+          isOnGround &&
+          this.player.anims.currentAnim?.key === "wizard-jump"
+        ) {
+          this.player.play("wizard-rest", true);
         }
       }
     }
@@ -826,7 +883,12 @@ export class MainScene extends Phaser.Scene {
 
     // Player animation
     if (!this.isStunned) {
-      if (this.cursors.left.isDown || this.cursors.right.isDown) {
+      if (this.player.body && !this.player.body.blocked.down) {
+        // Keep jump animation playing while in air
+        if (this.player.anims.currentAnim?.key !== "wizard-jump") {
+          this.player.play("wizard-jump", true);
+        }
+      } else if (this.cursors.left.isDown || this.cursors.right.isDown) {
         this.player.anims.play("wizard-walk", true);
       } else {
         this.player.anims.play("wizard-rest", true);
@@ -981,36 +1043,5 @@ export class MainScene extends Phaser.Scene {
     this.itemsLeftText.setText(
       "Items Left: " + Math.max(0, this.itemsToDrop - this.itemsDropped)
     );
-
-    // Update debug graphics to show hitbox
-    if (this.player && this.player.body) {
-      this.debugGraphics.clear();
-      this.debugGraphics.lineStyle(2, 0xff0000);
-      const body = this.player.body as Phaser.Physics.Arcade.Body;
-      const isJumping = !(body as Phaser.Physics.Arcade.Body).blocked.down;
-      if (isJumping) {
-        // While jumping, extend hitbox down by 50px
-        const offsetX = this.player.flipX
-          ? -PLAYER_HITBOX_OFFSET_X
-          : PLAYER_HITBOX_OFFSET_X;
-        this.debugGraphics.strokeRect(
-          this.player.x - body.width / 2 + offsetX,
-          this.player.y - body.height / 2 + body.offset.y,
-          body.width,
-          PLAYER_JUMP_HITBOX_HEIGHT
-        );
-      } else {
-        // On ground, use normal hitbox
-        const offsetX = this.player.flipX
-          ? -PLAYER_HITBOX_OFFSET_X
-          : PLAYER_HITBOX_OFFSET_X;
-        this.debugGraphics.strokeRect(
-          this.player.x - body.width / 2 + offsetX,
-          this.player.y - body.height / 2 + body.offset.y,
-          body.width,
-          PLAYER_HITBOX_HEIGHT
-        );
-      }
-    }
   }
 }
