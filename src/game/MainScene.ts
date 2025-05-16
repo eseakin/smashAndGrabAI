@@ -70,6 +70,9 @@ export class MainScene extends Phaser.Scene {
   private bg1!: Phaser.GameObjects.TileSprite;
   private isThrowing = false;
   private dropperPrevVelocityX = 0;
+  private isStunned = false;
+  private stunTimer = 0;
+  private readonly STUN_DURATION = 1000; // 1 second stun
 
   constructor() {
     super({ key: "MainScene" });
@@ -87,14 +90,26 @@ export class MainScene extends Phaser.Scene {
     this.load.image("coin-2", "images/Effects/Coin/Coin_0000002.png");
     this.load.image("coin-3", "images/Effects/Coin/Coin_0000003.png");
 
-    // Gem sprite
-    this.load.image("gem", "images/Effects/BulletsEtc/Gem-1.png");
+    // Gem sprites
+    this.load.image("gem-1", "images/Effects/BulletsEtc/Gem-1.png");
+    this.load.image("gem-2", "images/Effects/BulletsEtc/Gem-2.png");
+    this.load.image("gem-3", "images/Effects/BulletsEtc/Gem-3.png");
 
     // Bullet sprite for harmful items
     this.load.image("bullet-1", "images/Effects/BulletsEtc/Bullet-2.png");
 
+    // Spell effect sprite sheet
+    this.load.spritesheet("spell-hit", "images/Effects/Spells/3.png", {
+      frameWidth: 256,
+      frameHeight: 256,
+    });
+
     // Wizard sprite sheets
     this.load.spritesheet("wizard-rest", "images/Wizard/wiz-rest-sm.png", {
+      frameWidth: 200,
+      frameHeight: 150,
+    });
+    this.load.spritesheet("wizard-hurt", "images/Wizard/wiz-hurt-sm.png", {
       frameWidth: 200,
       frameHeight: 150,
     });
@@ -147,6 +162,31 @@ export class MainScene extends Phaser.Scene {
       ],
       frameRate: 8,
       repeat: -1,
+    });
+
+    // Gem animation with smooth transitions
+    this.anims.create({
+      key: "gem-sparkle",
+      frames: [
+        { key: "gem-1" },
+        { key: "gem-2" },
+        { key: "gem-3" },
+        { key: "gem-2" },
+        { key: "gem-1" },
+      ],
+      frameRate: 12,
+      repeat: -1,
+    });
+
+    // Spell hit animation
+    this.anims.create({
+      key: "spell-hit",
+      frames: this.anims.generateFrameNumbers("spell-hit", {
+        start: 0,
+        end: 39, // 8x5 = 40 frames
+      }),
+      frameRate: 60, // Doubled from 30
+      repeat: 0,
     });
 
     // Parallax backgrounds
@@ -260,15 +300,14 @@ export class MainScene extends Phaser.Scene {
       frameRate: 8,
       repeat: -1,
     });
-    // Placeholder: use rest frames for walk until walk sheet is available
     this.anims.create({
-      key: "wizard-walk",
-      frames: this.anims.generateFrameNumbers("wizard-rest", {
+      key: "wizard-hurt",
+      frames: this.anims.generateFrameNumbers("wizard-hurt", {
         start: 0,
         end: 7,
       }),
       frameRate: 12,
-      repeat: -1,
+      repeat: 0,
     });
     this.player = this.physics.add.sprite(
       GAME_WIDTH / 2,
@@ -367,10 +406,9 @@ export class MainScene extends Phaser.Scene {
     this.livesText = this.add.text(
       32 + spacing,
       scoreboardY,
-      "Lives: " + this.lives,
+      "❤️".repeat(this.lives),
       {
         fontSize: "20px",
-        color: "#fff",
         fontFamily: "monospace",
       }
     );
@@ -467,7 +505,7 @@ export class MainScene extends Phaser.Scene {
     }
     this.lives = LIVES_PER_ROUND;
     this.roundTimer = 0;
-    this.livesText.setText("Lives: " + this.lives);
+    this.updateLivesText();
     this.roundText.setText("Round: " + this.round);
     this.gameOver = false;
     this.gameOverText.setVisible(false);
@@ -560,7 +598,7 @@ export class MainScene extends Phaser.Scene {
 
     // Create miss text
     const missText = this.add
-      .text(x, y, "MISS!", {
+      .text(x, y, "💔", {
         fontSize: "24px",
         color: "#ff0000",
       })
@@ -587,6 +625,31 @@ export class MainScene extends Phaser.Scene {
       this.player.setVelocityY(-400); // Reduced from -500
       this.player.anims.play("wizard-jump", true);
     }
+  }
+
+  private stunPlayer() {
+    this.isStunned = true;
+    this.stunTimer = this.STUN_DURATION;
+    this.player.anims.play("wizard-hurt", true);
+    this.player.once("animationcomplete-wizard-hurt", () => {
+      this.player.anims.play("wizard-rest", true);
+    });
+  }
+
+  private createHitEffect(x: number, y: number) {
+    console.log("Creating hit effect at", x, y); // Debug log
+    const hitEffect = this.add.sprite(x, y + 30, "spell-hit"); // Changed from y + 40 to y + 30
+    hitEffect.setScale(0.2);
+    hitEffect.setDepth(9999);
+    hitEffect.setAlpha(1);
+    hitEffect.play("spell-hit");
+    hitEffect.once("animationcomplete", () => {
+      hitEffect.destroy();
+    });
+  }
+
+  private updateLivesText() {
+    this.livesText.setText("❤️".repeat(this.lives));
   }
 
   update(time: number, delta: number) {
@@ -670,27 +733,37 @@ export class MainScene extends Phaser.Scene {
       this.boostTimer = PLAYER_BOOST_DURATION;
     }
 
-    // Movement with animation
-    if (this.cursors.left.isDown) {
-      this.player.setVelocityX(-speed);
-      this.player.setFlipX(true);
-    } else if (this.cursors.right.isDown) {
-      this.player.setVelocityX(speed);
-      this.player.setFlipX(false);
-    } else {
-      this.player.setVelocityX(0);
+    // Update stun timer
+    if (this.isStunned) {
+      this.stunTimer -= delta;
+      if (this.stunTimer <= 0) {
+        this.isStunned = false;
+      }
     }
 
-    // Jump (up arrow or W)
-    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-    if (playerBody) {
-      const isOnGround = playerBody.blocked.down;
-      if (
-        (Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
-          Phaser.Input.Keyboard.JustDown(this.jumpKey)) &&
-        isOnGround
-      ) {
-        this.player.setVelocityY(-300);
+    // Movement with animation (only if not stunned)
+    if (!this.isStunned) {
+      if (this.cursors.left.isDown) {
+        this.player.setVelocityX(-speed);
+        this.player.setFlipX(true);
+      } else if (this.cursors.right.isDown) {
+        this.player.setVelocityX(speed);
+        this.player.setFlipX(false);
+      } else {
+        this.player.setVelocityX(0);
+      }
+
+      // Jump (up arrow or W)
+      const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+      if (playerBody) {
+        const isOnGround = playerBody.blocked.down;
+        if (
+          (Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
+            Phaser.Input.Keyboard.JustDown(this.jumpKey)) &&
+          isOnGround
+        ) {
+          this.player.setVelocityY(-300);
+        }
       }
     }
 
@@ -718,10 +791,12 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Player animation
-    if (this.cursors.left.isDown || this.cursors.right.isDown) {
-      this.player.anims.play("wizard-walk", true);
-    } else {
-      this.player.anims.play("wizard-rest", true);
+    if (!this.isStunned) {
+      if (this.cursors.left.isDown || this.cursors.right.isDown) {
+        this.player.anims.play("wizard-walk", true);
+      } else {
+        this.player.anims.play("wizard-rest", true);
+      }
     }
 
     // Dropper animation
@@ -782,7 +857,7 @@ export class MainScene extends Phaser.Scene {
               itemType === "REQUIRED"
                 ? "coin-0"
                 : itemType === "BONUS"
-                ? "gem"
+                ? "gem-1"
                 : "bullet-1"
             );
             if (itemType === "REQUIRED") {
@@ -792,6 +867,7 @@ export class MainScene extends Phaser.Scene {
             } else if (itemType === "BONUS") {
               item.displayWidth = 30;
               item.displayHeight = 30;
+              item.play("gem-sparkle");
             } else {
               // Bullet-2 is 538x218
               item.displayWidth = 45;
@@ -809,7 +885,7 @@ export class MainScene extends Phaser.Scene {
             this.physics.add.collider(item, this.ground, () => {
               if (itemType === "REQUIRED") {
                 this.lives--;
-                this.livesText.setText("Lives: " + this.lives);
+                this.updateLivesText();
                 this.createMissEffect(item.x, item.y);
                 if (this.lives <= 0) {
                   this.gameOverHandler();
@@ -824,8 +900,10 @@ export class MainScene extends Phaser.Scene {
             this.physics.add.overlap(item, this.player, () => {
               if (itemType === "HARMFUL") {
                 this.lives--;
-                this.livesText.setText("Lives: " + this.lives);
+                this.updateLivesText();
                 this.createMissEffect(item.x, item.y);
+                this.createHitEffect(item.x, item.y);
+                this.stunPlayer();
                 if (this.lives <= 0) {
                   this.gameOverHandler();
                 }
