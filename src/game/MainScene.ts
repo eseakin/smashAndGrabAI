@@ -81,6 +81,18 @@ export class MainScene extends Phaser.Scene {
     this.load.image("bg-layer2", "images/bg/MathWizBG/Layer2.png");
     this.load.image("bg-layer3", "images/bg/MathWizBG/Layer3.png");
 
+    // Coin frames
+    this.load.image("coin-0", "images/Effects/Coin/Coin_0000000.png");
+    this.load.image("coin-1", "images/Effects/Coin/Coin_0000001.png");
+    this.load.image("coin-2", "images/Effects/Coin/Coin_0000002.png");
+    this.load.image("coin-3", "images/Effects/Coin/Coin_0000003.png");
+
+    // Gem sprite
+    this.load.image("gem", "images/Effects/BulletsEtc/Gem-1.png");
+
+    // Bullet sprite for harmful items
+    this.load.image("bullet-1", "images/Effects/BulletsEtc/Bullet-2.png");
+
     // Wizard sprite sheets
     this.load.spritesheet("wizard-rest", "images/Wizard/wiz-rest-sm.png", {
       frameWidth: 200,
@@ -124,6 +136,19 @@ export class MainScene extends Phaser.Scene {
   }
 
   create() {
+    // Coin animation
+    this.anims.create({
+      key: "coin-spin",
+      frames: [
+        { key: "coin-0" },
+        { key: "coin-1" },
+        { key: "coin-2" },
+        { key: "coin-3" },
+      ],
+      frameRate: 8,
+      repeat: -1,
+    });
+
     // Parallax backgrounds
     const fgImage = this.textures.get("bg-layer1").getSourceImage();
     const fgHeight = fgImage.height;
@@ -446,18 +471,17 @@ export class MainScene extends Phaser.Scene {
       const item = this.physics.add.sprite(
         this.dropper.x,
         this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
-        "blank"
+        "coin-0"
       );
       item.displayWidth = ITEM_WIDTH;
       item.displayHeight = ITEM_HEIGHT;
-      item.setTint(ITEM_COLOR);
+      item.play("coin-spin");
       const itemBody = item.body as Phaser.Physics.Arcade.Body;
       if (itemBody) {
-        itemBody.setBounce(0.3);
-        itemBody.setFriction(0.8);
-        itemBody.setGravityY(500);
-        itemBody.setVelocityY(100);
-        itemBody.setAngularVelocity(Phaser.Math.Between(-100, 100));
+        itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
+        itemBody.setAllowGravity(true);
+        // Make item's collision point higher
+        itemBody.setOffset(0.5, 0);
       }
       this.earnedItems.push(item);
       this.physics.add.collider(item, this.dropper);
@@ -725,11 +749,25 @@ export class MainScene extends Phaser.Scene {
             const item = this.physics.add.sprite(
               this.dropper.x + (this.dropper.flipX ? 20 : -20),
               this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2 - 10,
-              "blank"
+              itemType === "REQUIRED"
+                ? "coin-0"
+                : itemType === "BONUS"
+                ? "gem"
+                : "bullet-1"
             );
-            item.displayWidth = ITEM_WIDTH;
-            item.displayHeight = ITEM_HEIGHT;
-            item.setTint(ITEM_TYPES[itemType].color);
+            if (itemType === "REQUIRED") {
+              item.displayWidth = 30;
+              item.displayHeight = 30;
+              item.play("coin-spin");
+            } else if (itemType === "BONUS") {
+              item.displayWidth = 30;
+              item.displayHeight = 30;
+            } else {
+              // Bullet-2 is 538x218
+              item.displayWidth = 45;
+              item.displayHeight = 18; // 45 * (218/538) ≈ 18
+              item.setAngle(90); // Rotate 90 degrees clockwise
+            }
             const itemBody = item.body as Phaser.Physics.Arcade.Body;
             if (itemBody) {
               itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
@@ -754,13 +792,22 @@ export class MainScene extends Phaser.Scene {
               item.destroy();
             });
             this.physics.add.overlap(item, this.player, () => {
-              this.score += ITEM_TYPES[itemType].points;
-              this.scoreText.setText("Score: " + this.score);
-              this.createCatchEffect(
-                item.x,
-                item.y,
-                ITEM_TYPES[itemType].points
-              );
+              if (itemType === "HARMFUL") {
+                this.lives--;
+                this.livesText.setText("Lives: " + this.lives);
+                this.createMissEffect(item.x, item.y);
+                if (this.lives <= 0) {
+                  this.gameOverHandler();
+                }
+              } else {
+                this.score += ITEM_TYPES[itemType].points;
+                this.scoreText.setText("Score: " + this.score);
+                this.createCatchEffect(
+                  item.x,
+                  item.y,
+                  ITEM_TYPES[itemType].points
+                );
+              }
               this.itemsCaughtOrMissed++;
               if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
                 this.startNewRound();
