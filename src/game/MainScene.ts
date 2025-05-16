@@ -61,6 +61,10 @@ export class MainScene extends Phaser.Scene {
   private countdown = 0;
   private countdownText!: Phaser.GameObjects.Text;
   private countdownActive = false;
+  private itemsToDrop: number = 0;
+  private itemsDropped: number = 0;
+  private itemsCaughtOrMissed: number = 0;
+  private trailTimer = 0;
 
   constructor() {
     super({ key: "MainScene" });
@@ -180,11 +184,13 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.collider(this.dropper, this.rightWall);
 
     // Input
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.boostKey = this.input.keyboard.addKey(
+    this.cursors = this.input!.keyboard!.createCursorKeys();
+    this.boostKey = this.input!.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.SPACE
     );
-    this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+    this.jumpKey = this.input!.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.W
+    );
 
     // Initialize dropper speed
     this.dropperSpeed = Phaser.Math.Between(
@@ -242,21 +248,27 @@ export class MainScene extends Phaser.Scene {
   private startCountdown() {
     this.countdown = 3;
     this.countdownActive = true;
-    this.countdownText.setText(this.countdown.toString());
-    this.countdownText.setVisible(true);
+    if (this.countdownText) {
+      this.countdownText.setText(this.countdown.toString());
+      this.countdownText.setVisible(true);
+    }
     this.time.addEvent({
       delay: 1000,
       repeat: 2,
       callback: () => {
         this.countdown--;
-        if (this.countdown > 0) {
-          this.countdownText.setText(this.countdown.toString());
-        } else {
-          this.countdownText.setText("GO!");
-          this.time.delayedCall(700, () => {
-            this.countdownText.setVisible(false);
-            this.countdownActive = false;
-          });
+        if (this.countdownText) {
+          if (this.countdown > 0) {
+            this.countdownText.setText(this.countdown.toString());
+          } else {
+            this.countdownText.setText("GO!");
+            this.time.delayedCall(700, () => {
+              if (this.countdownText) {
+                this.countdownText.setVisible(false);
+              }
+              this.countdownActive = false;
+            });
+          }
         }
       },
     });
@@ -287,39 +299,19 @@ export class MainScene extends Phaser.Scene {
 
   init(data: { itemsEarned?: number }) {
     if (data.itemsEarned) {
-      // Add bonus items based on typing performance
-      for (let i = 0; i < data.itemsEarned; i++) {
-        const item = this.physics.add.sprite(
-          this.dropper.x,
-          this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
-          "blank"
-        );
-        item.displayWidth = ITEM_WIDTH;
-        item.displayHeight = ITEM_HEIGHT;
-        item.setTint(ITEM_TYPES.BONUS.color);
-        const itemBody = item.body as Phaser.Physics.Arcade.Body;
-        if (itemBody) {
-          itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
-          itemBody.setAllowGravity(true);
-        }
-        this.physics.add.collider(item, this.ground, () => {
-          item.destroy();
-        });
-        this.physics.add.overlap(item, this.player, () => {
-          this.score += ITEM_TYPES.BONUS.points;
-          this.scoreText.setText("Score: " + this.score);
-          item.destroy();
-        });
-      }
+      this.itemsToDrop = data.itemsEarned;
+    } else {
+      this.itemsToDrop = 10; // fallback for first round or debug
     }
+    this.itemsDropped = 0;
+    this.itemsCaughtOrMissed = 0;
   }
 
   private addEarnedItems(count: number) {
     for (let i = 0; i < count; i++) {
       const item = this.physics.add.sprite(
-        this.dropper.x +
-          Phaser.Math.Between(-DROPPER_WIDTH / 3, DROPPER_WIDTH / 3),
-        this.dropper.y - DROPPER_HEIGHT / 2 - ITEM_HEIGHT / 2 - 100,
+        this.dropper.x,
+        this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
         "blank"
       );
       item.displayWidth = ITEM_WIDTH;
@@ -422,6 +414,33 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
+    // Trail effect: always show when moving, more pronounced when sprinting
+    let trailInterval = this.isBoosting ? 20 : 60;
+    let trailAlpha = this.isBoosting ? 0.3 : 0.12;
+    if (this.player.body && this.player.body.velocity.x !== 0) {
+      this.trailTimer += delta;
+      if (this.trailTimer > trailInterval) {
+        this.trailTimer = 0;
+        const trail = this.add.rectangle(
+          this.player.x,
+          this.player.y,
+          this.player.displayWidth,
+          this.player.displayHeight,
+          PLAYER_COLOR,
+          trailAlpha
+        );
+        trail.setDepth(-1);
+        this.tweens.add({
+          targets: trail,
+          alpha: 0,
+          duration: 250,
+          onComplete: () => trail.destroy(),
+        });
+      }
+    } else {
+      this.trailTimer = trailInterval; // so it spawns immediately on next move
+    }
+
     // Round timer
     this.roundTimer += delta;
     const timeLeft = Math.max(
@@ -493,45 +512,56 @@ export class MainScene extends Phaser.Scene {
       this.dropper.setVelocityX(this.dropperSpeed);
     }
 
-    // Item drop logic with decreasing interval
-    this.dropTimer += delta;
-    const currentDropInterval =
-      BASE_DROP_INTERVAL * Math.max(0.5, 1 - (this.round - 1) * 0.1);
-    if (this.dropTimer >= currentDropInterval) {
-      this.dropTimer = 0;
-      const itemType = Phaser.Math.RND.pick(
-        Object.keys(ITEM_TYPES)
-      ) as keyof typeof ITEM_TYPES;
-      const item = this.physics.add.sprite(
-        this.dropper.x,
-        this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
-        "blank"
-      );
-      item.displayWidth = ITEM_WIDTH;
-      item.displayHeight = ITEM_HEIGHT;
-      item.setTint(ITEM_TYPES[itemType].color);
-      const itemBody = item.body as Phaser.Physics.Arcade.Body;
-      if (itemBody) {
-        itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
-        itemBody.setAllowGravity(true);
-      }
-      this.physics.add.collider(item, this.ground, () => {
-        if (itemType === "REQUIRED") {
-          this.lives--;
-          this.livesText.setText("Lives: " + this.lives);
-          this.createMissEffect(item.x, item.y);
-          if (this.lives <= 0) {
-            this.gameOverHandler();
-          }
+    // Only drop items if we haven't dropped all for this round
+    if (this.itemsDropped < this.itemsToDrop) {
+      this.dropTimer += delta;
+      const currentDropInterval =
+        BASE_DROP_INTERVAL * Math.max(0.5, 1 - (this.round - 1) * 0.1);
+      if (this.dropTimer >= currentDropInterval) {
+        this.dropTimer = 0;
+        const itemType = Phaser.Math.RND.pick(
+          Object.keys(ITEM_TYPES)
+        ) as keyof typeof ITEM_TYPES;
+        const item = this.physics.add.sprite(
+          this.dropper.x,
+          this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
+          "blank"
+        );
+        item.displayWidth = ITEM_WIDTH;
+        item.displayHeight = ITEM_HEIGHT;
+        item.setTint(ITEM_TYPES[itemType].color);
+        const itemBody = item.body as Phaser.Physics.Arcade.Body;
+        if (itemBody) {
+          itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
+          itemBody.setAllowGravity(true);
         }
-        item.destroy();
-      });
-      this.physics.add.overlap(item, this.player, () => {
-        this.score += ITEM_TYPES[itemType].points;
-        this.scoreText.setText("Score: " + this.score);
-        this.createCatchEffect(item.x, item.y, ITEM_TYPES[itemType].points);
-        item.destroy();
-      });
+        this.itemsDropped++;
+        this.physics.add.collider(item, this.ground, () => {
+          if (itemType === "REQUIRED") {
+            this.lives--;
+            this.livesText.setText("Lives: " + this.lives);
+            this.createMissEffect(item.x, item.y);
+            if (this.lives <= 0) {
+              this.gameOverHandler();
+            }
+          }
+          this.itemsCaughtOrMissed++;
+          if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
+            this.startNewRound();
+          }
+          item.destroy();
+        });
+        this.physics.add.overlap(item, this.player, () => {
+          this.score += ITEM_TYPES[itemType].points;
+          this.scoreText.setText("Score: " + this.score);
+          this.createCatchEffect(item.x, item.y, ITEM_TYPES[itemType].points);
+          this.itemsCaughtOrMissed++;
+          if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
+            this.startNewRound();
+          }
+          item.destroy();
+        });
+      }
     }
 
     this.itemsLeftText.setText(
