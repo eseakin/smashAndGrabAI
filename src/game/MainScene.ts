@@ -77,6 +77,7 @@ export class MainScene extends Phaser.Scene {
   private gameOverBorder!: Phaser.GameObjects.Rectangle;
   private groundPlatformImg!: Phaser.GameObjects.Image;
   private fgContainer!: Phaser.GameObjects.Container;
+  private golemTrailTimer = 0;
 
   constructor() {
     super({ key: "MainScene" });
@@ -212,6 +213,8 @@ export class MainScene extends Phaser.Scene {
       "wizard-slide-0",
       "images/Wizard/Wizard character sprites/RESIZE/Slide.png"
     );
+
+    this.load.image("golem-blast", "images/Effects/BulletsEtc/Blast small.png");
   }
 
   create() {
@@ -778,7 +781,10 @@ export class MainScene extends Phaser.Scene {
     // Play throw animation at 3x speed
     this.dropper.anims.play("golem-throw", true);
     this.dropper.anims.timeScale = 3; // 3x faster animation
-
+    // Create blast after 167ms (halfway through the faster animation)
+    this.time.delayedCall(167, () => {
+      this.createGolemBlast();
+    });
     this.dropper.once("animationcomplete-golem-throw", () => {
       if (!this.gameOverText.text.includes("Victory")) {
         // Only spawn bullets during game over
@@ -815,70 +821,13 @@ export class MainScene extends Phaser.Scene {
         this.continuousThrow();
       });
     });
-
-    // Add extra item spawns between smashes
-    if (!this.gameOverText.text.includes("Victory")) {
-      // Only spawn bullets between smashes during game over
-      this.time.delayedCall(166, () => {
-        // Halfway between smashes
-        const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
-        const spawnY = this.topPlatform.y + 50;
-        const item = this.physics.add.sprite(randomX, spawnY, "bullet-1");
-
-        // Bullet settings
-        item.displayWidth = 40 * (538 / 244);
-        item.displayHeight = 40;
-        item.setAngle(90);
-        item.play("bullet-spin");
-
-        const itemBody = item.body as Phaser.Physics.Arcade.Body;
-        if (itemBody) {
-          itemBody.setGravityY(300);
-          itemBody.setAllowGravity(true);
-          itemBody.setSize(40 * (538 / 244), 40);
-          itemBody.setOffset(0.5, 0);
-        }
-
-        // Destroy item when it hits ground and create explosion
-        this.physics.add.collider(item, this.ground, () => {
-          this.createExplosionEffect(item.x, item.y);
-          item.destroy();
-        });
-      });
-    } else {
-      // During victory, spawn gems randomly
-      this.time.delayedCall(1, () => {
-        // Changed from 100 to 33 (3x more frequent)
-        // Spawn a single gem
-        const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
-        const spawnY = this.topPlatform.y + 50;
-        const gem = this.physics.add.sprite(randomX, spawnY, "gem-1");
-
-        // Gem settings
-        gem.displayWidth = 50;
-        gem.displayHeight = 50;
-        gem.play("gem-sparkle");
-
-        const gemBody = gem.body as Phaser.Physics.Arcade.Body;
-        if (gemBody) {
-          gemBody.setGravityY(300);
-          gemBody.setAllowGravity(true);
-          gemBody.setSize(50, 50);
-          gemBody.setOffset(0.5, 0);
-        }
-
-        this.physics.add.collider(gem, this.ground, () => {
-          gem.destroy();
-        });
-      });
-    }
   }
 
   init(data: { itemsEarned?: number }) {
     if (data.itemsEarned) {
       this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
     } else {
-      this.itemsToDrop = 5; // Changed from 20 to 5 for testing
+      this.itemsToDrop = 20; // Changed back to 20 from 5
     }
     this.itemsDropped = 0;
     this.itemsCaughtOrMissed = 0;
@@ -1067,6 +1016,32 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
+  // Helper to create the golem blast effect under the fist
+  private createGolemBlast() {
+    const golem = this.dropper;
+    const facingRight = golem.flipX === true; // true when facing right, false when facing left
+    const golemSide = golem.x + golem.displayWidth / 2; // always right edge
+    const blastX = facingRight ? golemSide + 85 : golemSide - 30; // Decreased from 90 to 85 for right-facing
+    const blastY = golem.y + golem.displayHeight / 2 - 10;
+    const blast = this.add
+      .sprite(blastX, blastY, "golem-blast")
+      .setOrigin(0.5, 1)
+      .setDepth(1000);
+    this.fgContainer.add(blast);
+    blast.setScale(0.25, 0.4); // Scale to make blast 50px wide
+    if (!facingRight) blast.setFlipX(true);
+
+    // Create a parallel tween for scale and alpha
+    this.tweens.add({
+      targets: blast,
+      alpha: 0,
+      scaleX: 0.325, // 0.25 * 1.3
+      scaleY: 0.52, // 0.4 * 1.3
+      duration: 250,
+      onComplete: () => blast.destroy(),
+    });
+  }
+
   update(time: number, delta: number) {
     if (this.gameOver) {
       // Only stop player movement
@@ -1194,6 +1169,37 @@ export class MainScene extends Phaser.Scene {
           Math.min(maxFrameRate, frameRate)
         );
         this.dropper.anims.msPerFrame = 1000 / clampedFrameRate;
+
+        // Golem dust emission (side effect)
+        if (
+          this.dropper.anims.currentAnim?.key === "golem-walk" &&
+          Math.abs(this.dropper.body.velocity.x) > 0.5
+        ) {
+          this.golemTrailTimer += delta;
+          if (this.golemTrailTimer > 300) {
+            this.golemTrailTimer = 0;
+            const dust = this.add.sprite(
+              this.dropper.x,
+              this.dropper.y + this.dropper.displayHeight / 2 - 10,
+              "dust-circle"
+            );
+            const scale = Phaser.Math.FloatBetween(1.5, 2.0);
+            dust.setScale(scale);
+            dust.setAlpha(Phaser.Math.FloatBetween(0.5, 0.7));
+            dust.setDepth(110);
+            this.tweens.add({
+              targets: dust,
+              alpha: 0,
+              y: dust.y + Phaser.Math.Between(12, 28),
+              scale: scale * 2.2,
+              duration: Phaser.Math.Between(600, 900),
+              ease: "Quad.easeOut",
+              onComplete: () => dust.destroy(),
+            });
+          }
+        } else {
+          this.golemTrailTimer = 300;
+        }
       } else {
         this.dropper.anims.play("golem-rest", true);
       }
@@ -1219,13 +1225,17 @@ export class MainScene extends Phaser.Scene {
         // Wait 0.01s before playing throw animation
         this.time.delayedCall(10, () => {
           this.dropper.anims.play("golem-throw", true);
+          // Create blast after 500ms (halfway through the animation)
+          this.time.delayedCall(500, () => {
+            this.createGolemBlast();
+          });
           this.dropper.once("animationcomplete-golem-throw", () => {
             const itemType = Phaser.Math.RND.pick(
               Object.keys(ITEM_TYPES)
             ) as keyof typeof ITEM_TYPES;
             const item = this.physics.add.sprite(
               this.dropper.x + (this.dropper.flipX ? 50 : -50),
-              this.dropper.y + (itemType === "HARMFUL" ? 125 : 115), // Lowered all by 10px
+              this.dropper.y + (itemType === "HARMFUL" ? 125 : 115),
               itemType === "REQUIRED"
                 ? "coin-0"
                 : itemType === "BONUS"
