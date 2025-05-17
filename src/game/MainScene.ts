@@ -1019,17 +1019,17 @@ export class MainScene extends Phaser.Scene {
   // Helper to create the golem blast effect under the fist
   private createGolemBlast() {
     const golem = this.dropper;
+    const blastOffset = -20;
     const facingRight = golem.flipX === true; // true when facing right, false when facing left
-    const golemSide = golem.x + golem.displayWidth / 2; // always right edge
-    const blastX = facingRight ? golemSide + 85 : golemSide - 30; // Decreased from 90 to 85 for right-facing
+    const direction = facingRight ? 1 : -1; // true when facing right, false when facing left
+    const golemLeadingEdge = golem.x + (direction * golem.displayWidth) / 2;
+    const blastX = golemLeadingEdge + direction * blastOffset;
     const blastY = golem.y + golem.displayHeight / 2 - 10;
     const blast = this.add
       .sprite(blastX, blastY, "golem-blast")
       .setOrigin(0.5, 1)
       .setDepth(1000);
-    this.fgContainer.add(blast);
     blast.setScale(0.25, 0.4); // Scale to make blast 50px wide
-    if (!facingRight) blast.setFlipX(true);
 
     // Create a parallel tween for scale and alpha
     this.tweens.add({
