@@ -34,7 +34,6 @@ export class MainScene extends Phaser.Scene {
   private dropper!: Phaser.Physics.Arcade.Sprite;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private boostKey!: Phaser.Input.Keyboard.Key;
-  private jumpKey!: Phaser.Input.Keyboard.Key;
   private isBoosting = false;
   private boostTimer = 0;
   private dropperSpeed = 0;
@@ -75,6 +74,7 @@ export class MainScene extends Phaser.Scene {
   private gameOverPanel!: Phaser.GameObjects.Rectangle;
   private gameOverBorder!: Phaser.GameObjects.Rectangle;
   private groundPlatformImg!: Phaser.GameObjects.Image;
+  private fgContainer!: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: "MainScene" });
@@ -194,6 +194,16 @@ export class MainScene extends Phaser.Scene {
     this.load.image("platform-img", "images/bg/platform.png");
     this.load.image("bg-layer1-wide", "images/bg/MathWizBG/Layer1 wide.png");
     this.load.image("ground-img", "images/bg/ground.png");
+
+    this.load.spritesheet("spell-hit2", "images/Effects/Spells/2.png", {
+      frameWidth: 256,
+      frameHeight: 256,
+    });
+
+    this.load.spritesheet("spell-hit9", "images/Effects/Spells/9.png", {
+      frameWidth: 256,
+      frameHeight: 256,
+    });
   }
 
   create() {
@@ -259,6 +269,28 @@ export class MainScene extends Phaser.Scene {
       repeat: -1,
     });
 
+    // Spell hit2 animation
+    this.anims.create({
+      key: "spell-hit2",
+      frames: this.anims.generateFrameNumbers("spell-hit2", {
+        start: 0,
+        end: 39,
+      }),
+      frameRate: 60,
+      repeat: 0,
+    });
+
+    // Spell hit9 animation
+    this.anims.create({
+      key: "spell-hit9",
+      frames: this.anims.generateFrameNumbers("spell-hit9", {
+        start: 0,
+        end: 39,
+      }),
+      frameRate: 60,
+      repeat: 0,
+    });
+
     // Background layers
     const fgImage = this.textures.get("bg-layer1").getSourceImage();
     const fgHeight = fgImage.height;
@@ -305,6 +337,9 @@ export class MainScene extends Phaser.Scene {
     );
     this.physics.add.existing(this.ground, true);
 
+    // Foreground container for parallaxed elements
+    this.fgContainer = this.add.container(0, 0);
+
     // Add platform image visually over the ground
     this.groundPlatformImg = this.add.image(
       GAME_WIDTH / 2,
@@ -316,6 +351,7 @@ export class MainScene extends Phaser.Scene {
     this.groundPlatformImg.displayHeight = 334;
     this.groundPlatformImg.setDepth(0);
     this.groundPlatformImg.setScale(1.2, 1.2);
+    this.fgContainer.add(this.groundPlatformImg);
 
     // Top platform (dropper area)
     this.topPlatform = this.add
@@ -488,9 +524,6 @@ export class MainScene extends Phaser.Scene {
     this.cursors = this.input!.keyboard!.createCursorKeys();
     this.boostKey = this.input!.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.SPACE
-    );
-    this.jumpKey = this.input!.keyboard!.addKey(
-      Phaser.Input.Keyboard.KeyCodes.W
     );
 
     // Initialize dropper speed
@@ -929,17 +962,19 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.shake(350, 0.008); // smoother, less jittery
   }
 
-  private handleJump() {
-    if (this.player.body && this.player.body.touching.down) {
-      this.player.setVelocityY(-400); // Reduced from -500
-      this.player.anims.play("wizard-jump", true);
-    }
-  }
-
   private stunPlayer() {
     this.isStunned = true;
     this.stunTimer = this.STUN_DURATION;
     this.player.anims.play("wizard-dizzy", true);
+    // Decelerate horizontal movement quickly when stunned
+    if (this.player.body) {
+      this.tweens.add({
+        targets: this.player.body.velocity,
+        x: 0,
+        duration: 250,
+        ease: "Quad.easeOut",
+      });
+    }
     // Add a timer to stop the animation when stun ends
     this.time.delayedCall(this.STUN_DURATION, () => {
       this.player.anims.play("wizard-rest", true);
@@ -995,7 +1030,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createExplosionEffect(x: number, y: number) {
-    const explosion = this.add.sprite(x, y, "explosion-1");
+    const localX = x - this.fgContainer.x;
+    const explosion = this.add.sprite(localX, y, "explosion-1");
+    this.fgContainer.add(explosion);
     explosion.setScale(0.075); // Increased from 0.05 (50% larger)
     explosion.setDepth(200); // Ensure it appears above everything
     explosion.setOrigin(0.5); // Center the explosion
@@ -1093,24 +1130,17 @@ export class MainScene extends Phaser.Scene {
         this.player.setVelocityX(0);
       }
 
-      // Jump (up arrow or W)
-      const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-      if (playerBody) {
-        const isOnGround = playerBody.blocked.down;
-        if (
-          (Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
-            Phaser.Input.Keyboard.JustDown(this.jumpKey)) &&
-          isOnGround
-        ) {
-          this.player.setVelocityY(-300);
-          this.player.play("wizard-jump", true);
-        }
-        // Return to idle when landing
-        if (
-          isOnGround &&
-          this.player.anims.currentAnim?.key === "wizard-jump"
-        ) {
-          this.player.play("wizard-rest", true);
+      // Player animation
+      if (!this.isStunned) {
+        if (this.player.body && !this.player.body.blocked.down) {
+          // Keep jump animation playing while in air
+          if (this.player.anims.currentAnim?.key !== "wizard-jump") {
+            this.player.play("wizard-jump", true);
+          }
+        } else if (this.cursors.left.isDown || this.cursors.right.isDown) {
+          this.player.anims.play("wizard-walk", true);
+        } else {
+          this.player.anims.play("wizard-rest", true);
         }
       }
     }
@@ -1136,20 +1166,6 @@ export class MainScene extends Phaser.Scene {
         );
       }
       this.dropper.setVelocityX(this.dropperSpeed);
-    }
-
-    // Player animation
-    if (!this.isStunned) {
-      if (this.player.body && !this.player.body.blocked.down) {
-        // Keep jump animation playing while in air
-        if (this.player.anims.currentAnim?.key !== "wizard-jump") {
-          this.player.play("wizard-jump", true);
-        }
-      } else if (this.cursors.left.isDown || this.cursors.right.isDown) {
-        this.player.anims.play("wizard-walk", true);
-      } else {
-        this.player.anims.play("wizard-rest", true);
-      }
     }
 
     // Dropper animation
@@ -1246,6 +1262,26 @@ export class MainScene extends Phaser.Scene {
             }
             this.itemsDropped++;
             this.physics.add.collider(item, this.ground, () => {
+              const localX = item.x - this.fgContainer.x;
+              const impactY =
+                item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
+              if (itemType === "REQUIRED") {
+                // Play spell-hit9 effect for coin death
+                const spell9 = this.add.sprite(localX, impactY, "spell-hit9");
+                this.fgContainer.add(spell9);
+                spell9.setScale(0.35);
+                spell9.setOrigin(0.5);
+                spell9.play("spell-hit9", true);
+                spell9.once("animationcomplete", () => spell9.destroy());
+              } else if (itemType === "BONUS") {
+                // Play spell-hit2 effect for gem death
+                const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
+                this.fgContainer.add(spell2);
+                spell2.setScale(0.35);
+                spell2.setOrigin(0.5);
+                spell2.play("spell-hit2", true);
+                spell2.once("animationcomplete", () => spell2.destroy());
+              }
               if (itemType === "REQUIRED") {
                 this.lives--;
                 this.updateLivesText();
@@ -1280,6 +1316,14 @@ export class MainScene extends Phaser.Scene {
                   item.y,
                   ITEM_TYPES[itemType].points
                 );
+                // Wizard jumps with joy on good catch
+                if (
+                  this.player.body &&
+                  (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
+                ) {
+                  this.player.setVelocityY(-300);
+                  this.player.play("wizard-jump", true);
+                }
               }
               this.itemsCaughtOrMissed++;
               if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
@@ -1302,9 +1346,18 @@ export class MainScene extends Phaser.Scene {
     if (this.player && this.player.body) {
       // Parallax for single wide bg1
       this.bg1.x = GAME_WIDTH / 2 - this.player.x * 0.2;
-      this.groundPlatformImg.x = GAME_WIDTH / 2 - this.player.x * 0.2;
+      this.fgContainer.x = -this.player.x * 0.2;
       this.bg2.tilePositionX = this.player.x * 0.1;
       this.bg3.tilePositionX = this.player.x * 0.05;
+    }
+
+    // Return to idle when landing
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    if (playerBody) {
+      const isOnGround = playerBody.blocked.down;
+      if (isOnGround && this.player.anims.currentAnim?.key === "wizard-jump") {
+        this.player.play("wizard-rest", true);
+      }
     }
   }
 }
