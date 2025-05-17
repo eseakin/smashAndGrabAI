@@ -53,6 +53,7 @@ export class MainScene extends Phaser.Scene {
   private roundTimerText!: Phaser.GameObjects.Text;
   private gameOver = false;
   private gameOverText!: Phaser.GameObjects.Text;
+  private gameOverScoreText!: Phaser.GameObjects.Text;
   private earnedItems: Phaser.Physics.Arcade.Sprite[] = [];
   private itemsLeftText!: Phaser.GameObjects.Text;
   private maxRounds = 2;
@@ -65,12 +66,15 @@ export class MainScene extends Phaser.Scene {
   private trailTimer = 0;
   private bg3!: Phaser.GameObjects.TileSprite;
   private bg2!: Phaser.GameObjects.TileSprite;
-  private bg1!: Phaser.GameObjects.TileSprite;
+  private bg1!: Phaser.GameObjects.Sprite;
   private isThrowing = false;
   private dropperPrevVelocityX = 0;
   private isStunned = false;
   private stunTimer = 0;
   private readonly STUN_DURATION = 1000; // 1 second stun
+  private gameOverPanel!: Phaser.GameObjects.Rectangle;
+  private gameOverBorder!: Phaser.GameObjects.Rectangle;
+  private groundPlatformImg!: Phaser.GameObjects.Image;
 
   constructor() {
     super({ key: "MainScene" });
@@ -185,6 +189,11 @@ export class MainScene extends Phaser.Scene {
       pixelWidth: 1,
       pixelHeight: 1,
     });
+
+    // In preload()
+    this.load.image("platform-img", "images/bg/platform.png");
+    this.load.image("bg-layer1-wide", "images/bg/MathWizBG/Layer1 wide.png");
+    this.load.image("ground-img", "images/bg/ground.png");
   }
 
   create() {
@@ -250,7 +259,7 @@ export class MainScene extends Phaser.Scene {
       repeat: -1,
     });
 
-    // Parallax backgrounds
+    // Background layers
     const fgImage = this.textures.get("bg-layer1").getSourceImage();
     const fgHeight = fgImage.height;
     this.bg3 = this.add
@@ -261,9 +270,10 @@ export class MainScene extends Phaser.Scene {
         GAME_HEIGHT,
         "bg-layer3"
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 0.5)
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
-      .setScale(1.05);
+      .setScale(1)
+      .setScrollFactor(0); // Prevent movement during screen shake
     this.bg2 = this.add
       .tileSprite(
         GAME_WIDTH / 2,
@@ -272,21 +282,16 @@ export class MainScene extends Phaser.Scene {
         GAME_HEIGHT,
         "bg-layer2"
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 0.5)
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
-      .setScale(1.05);
-    // Foreground only at the bottom
+      .setScale(1.5)
+      .setScrollFactor(0); // Prevent movement during screen shake
+    // Foreground only at the bottom (single wide image)
     this.bg1 = this.add
-      .tileSprite(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT,
-        GAME_WIDTH,
-        fgHeight,
-        "bg-layer1"
-      )
+      .sprite(GAME_WIDTH / 2, GAME_HEIGHT, "bg-layer1-wide")
       .setOrigin(0.5, 1)
-      .setDisplaySize(GAME_WIDTH, fgHeight)
-      .setScale(1.05);
+      .setDisplaySize(1400, 330)
+      .setScrollFactor(0);
 
     // Background color
     this.cameras.main.setBackgroundColor(0xa0d8ef);
@@ -294,120 +299,35 @@ export class MainScene extends Phaser.Scene {
     // Ground platform (player area)
     this.ground = this.add.rectangle(
       GAME_WIDTH / 2,
-      GAME_HEIGHT - GROUND_HEIGHT / 2 + 20,
-      GAME_WIDTH + 40,
-      GROUND_HEIGHT + 40,
-      0x4e342e
+      GAME_HEIGHT - GROUND_HEIGHT / 2 + 20, // Move down by 20px (half of the extra height)
+      GAME_WIDTH + 40, // Extend 20px on each side
+      GROUND_HEIGHT + 40 // Extend 40px down
     );
     this.physics.add.existing(this.ground, true);
 
-    // Add detailed decorative elements to ground
-    // Moss (downward triangles)
-    for (let i = 0; i < 40; i++) {
-      const x = Phaser.Math.Between(50, GAME_WIDTH - 50);
-      const y = GAME_HEIGHT - GROUND_HEIGHT + 5;
-      const size = Phaser.Math.Between(3, 6);
-      const moss = this.add
-        .triangle(x, y, 0, 0, size, 0, size / 2, size, 0x2d572c)
-        .setDepth(1);
-      moss.setAlpha(Phaser.Math.FloatBetween(0.4, 0.8));
-    }
-
-    // Small stones (circles)
-    for (let i = 0; i < 30; i++) {
-      const x = Phaser.Math.Between(50, GAME_WIDTH - 50);
-      const y = GAME_HEIGHT - GROUND_HEIGHT + 5;
-      const size = Phaser.Math.Between(2, 4);
-      const stone = this.add.circle(x, y, size, 0x3e2723).setDepth(1);
-      stone.setAlpha(Phaser.Math.FloatBetween(0.6, 1));
-    }
-
-    // Grass tufts (upward triangles)
-    for (let i = 0; i < 25; i++) {
-      const x = Phaser.Math.Between(50, GAME_WIDTH - 50);
-      const y = GAME_HEIGHT - GROUND_HEIGHT + 8;
-      const size = Phaser.Math.Between(3, 5);
-      const grass = this.add
-        .triangle(x, y, 0, size, size, size, size / 2, 0, 0x2d572c)
-        .setDepth(1);
-      grass.setAlpha(Phaser.Math.FloatBetween(0.7, 1));
-    }
-
-    // Cracks (thin lines)
-    for (let i = 0; i < 15; i++) {
-      const x = Phaser.Math.Between(50, GAME_WIDTH - 50);
-      const y = GAME_HEIGHT - GROUND_HEIGHT + 5;
-      const length = Phaser.Math.Between(4, 8);
-      const angle = Phaser.Math.Between(0, 180);
-      const crack = this.add.line(x, y, 0, 0, length, 0, 0x2c1810).setDepth(1);
-      crack.setRotation(Phaser.Math.DegToRad(angle));
-      crack.setLineWidth(1);
-    }
+    // Add platform image visually over the ground
+    this.groundPlatformImg = this.add.image(
+      GAME_WIDTH / 2,
+      GAME_HEIGHT + 250, // Align bottom edge with ground
+      "ground-img"
+    );
+    this.groundPlatformImg.setOrigin(0.5, 1);
+    this.groundPlatformImg.displayWidth = 1889;
+    this.groundPlatformImg.displayHeight = 334;
+    this.groundPlatformImg.setDepth(0);
+    this.groundPlatformImg.setScale(1.2, 1.2);
 
     // Top platform (dropper area)
-    this.topPlatform = this.add.rectangle(
-      GAME_WIDTH / 2,
-      TOP_PLATFORM_HEIGHT / 2 + 150,
-      PLATFORM_WIDTH,
-      TOP_PLATFORM_HEIGHT,
-      0x6d4c41
-    );
+    this.topPlatform = this.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        TOP_PLATFORM_HEIGHT / 2 + 145, // Added +40 to lower platform
+        PLATFORM_WIDTH,
+        TOP_PLATFORM_HEIGHT,
+        0x6d4c41
+      )
+      .setAlpha(0); // Make the platform transparent
     this.physics.add.existing(this.topPlatform, true);
-
-    // Add detailed decorative elements to top platform
-    // Moss (downward triangles)
-    for (let i = 0; i < 30; i++) {
-      const x = Phaser.Math.Between(
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + 20,
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - 20
-      );
-      const y = TOP_PLATFORM_HEIGHT / 2 + 150 + TOP_PLATFORM_HEIGHT / 2 + 5;
-      const size = Phaser.Math.Between(3, 6);
-      const moss = this.add
-        .triangle(x, y, 0, 0, size, 0, size / 2, size, 0x2d572c)
-        .setDepth(1);
-      moss.setAlpha(Phaser.Math.FloatBetween(0.4, 0.8));
-    }
-
-    // Small stones (circles)
-    for (let i = 0; i < 20; i++) {
-      const x = Phaser.Math.Between(
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + 20,
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - 20
-      );
-      const y = TOP_PLATFORM_HEIGHT / 2 + 150 + TOP_PLATFORM_HEIGHT / 2 + 5;
-      const size = Phaser.Math.Between(2, 4);
-      const stone = this.add.circle(x, y, size, 0x3e2723).setDepth(1);
-      stone.setAlpha(Phaser.Math.FloatBetween(0.6, 1));
-    }
-
-    // Grass tufts (upward triangles)
-    for (let i = 0; i < 20; i++) {
-      const x = Phaser.Math.Between(
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + 20,
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - 20
-      );
-      const y = TOP_PLATFORM_HEIGHT / 2 + 150 + TOP_PLATFORM_HEIGHT / 2 + 8;
-      const size = Phaser.Math.Between(3, 5);
-      const grass = this.add
-        .triangle(x, y, 0, size, size, size, size / 2, 0, 0x2d572c)
-        .setDepth(1);
-      grass.setAlpha(Phaser.Math.FloatBetween(0.7, 1));
-    }
-
-    // Cracks (thin lines)
-    for (let i = 0; i < 10; i++) {
-      const x = Phaser.Math.Between(
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + 20,
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - 20
-      );
-      const y = TOP_PLATFORM_HEIGHT / 2 + 150 + TOP_PLATFORM_HEIGHT / 2 + 5;
-      const length = Phaser.Math.Between(4, 8);
-      const angle = Phaser.Math.Between(0, 180);
-      const crack = this.add.line(x, y, 0, 0, length, 0, 0x2c1810).setDepth(1);
-      crack.setRotation(Phaser.Math.DegToRad(angle));
-      crack.setLineWidth(1);
-    }
 
     // Left boundary
     this.leftWall = this.add.rectangle(
@@ -584,8 +504,8 @@ export class MainScene extends Phaser.Scene {
     const spacing = 140;
     this.scoreText = this.add
       .text(
-        32, // Left side
-        GAME_HEIGHT - 32, // Bottom
+        Math.round(32), // Left side, integer
+        Math.round(GAME_HEIGHT - 32), // Bottom, integer
         "Score: 0",
         {
           fontSize: "30px",
@@ -595,6 +515,7 @@ export class MainScene extends Phaser.Scene {
       )
       .setOrigin(0, 1) // Set origin to bottom left
       .setDepth(0); // UI at bottom layer
+    this.scoreText.setResolution(2);
 
     // Create hearts with 5px spacing
     const heartSize = 30;
@@ -625,39 +546,78 @@ export class MainScene extends Phaser.Scene {
     this.dropper.setDepth(100);
 
     this.gameOverText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
-        fontSize: "64px",
-        color: "#ffd700", // Gold color
-        fontFamily: "Georgia, serif",
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, "", {
+        fontSize: "96px",
+        color: "#b8860b", // deep gold
+        fontFamily:
+          "'UnifrakturCook', 'Cinzel Decorative', 'MedievalSharp', serif",
         fontStyle: "bold",
-        stroke: "#000",
+        stroke: "#6d4c41",
         strokeThickness: 8,
         shadow: {
-          offsetX: 2,
-          offsetY: 2,
-          color: "#000",
-          blur: 5,
-          stroke: true,
+          offsetX: 4,
+          offsetY: 4,
+          color: "#6d4c41",
+          blur: 8,
           fill: true,
         },
       })
       .setOrigin(0.5)
       .setVisible(false)
-      .setDepth(300); // Above everything
+      .setDepth(300);
 
-    // Add a fantasy panel behind the text
-    const gameOverPanel = this.add
+    // Score subtitle (smaller, brown/green, fantasy/serif font)
+    this.gameOverScoreText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, "", {
+        fontSize: "40px",
+        color: "#3e5c23", // dark green
+        fontFamily:
+          "'UnifrakturCook', 'Cinzel Decorative', 'MedievalSharp', serif",
+        fontStyle: "italic",
+        stroke: "#6d4c41",
+        strokeThickness: 4,
+        shadow: {
+          offsetX: 2,
+          offsetY: 2,
+          color: "#6d4c41",
+          blur: 4,
+          fill: true,
+        },
+      })
+      .setOrigin(0.5)
+      .setVisible(false)
+      .setDepth(300);
+
+    // Add a bold, transparent fantasy panel behind the text
+    const panel = this.add
       .rectangle(
         GAME_WIDTH / 2,
         GAME_HEIGHT / 2,
-        600,
+        500,
         200,
-        0x4a2f1b // Dark brown
+        0x223366, // deep blue
+        0.8 // 80% opacity
       )
-      .setStrokeStyle(4, 0xffd700) // Gold border
-      .setDepth(299) // Just below the text
+      .setOrigin(0.5)
       .setVisible(false)
-      .setName("gameOverPanel");
+      .setDepth(299);
+
+    // Add a thick, dark brown border
+    const border = this.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        510,
+        210,
+        0x6d4c41, // dark brown
+        1
+      )
+      .setOrigin(0.5)
+      .setVisible(false)
+      .setDepth(298);
+
+    this.gameOverPanel = panel;
+    this.gameOverBorder = border;
 
     this.countdownText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
@@ -671,6 +631,17 @@ export class MainScene extends Phaser.Scene {
       .setVisible(false);
 
     this.startCountdown();
+
+    // In create(), after creating this.topPlatform
+    const platformImg = this.add.image(
+      this.topPlatform.x,
+      this.topPlatform.y + 20,
+      "platform-img"
+    );
+    platformImg.setOrigin(0.5, 0.5);
+    platformImg.displayWidth = 850;
+    platformImg.displayHeight = (334 / 1889) * 850; // maintain aspect ratio
+    platformImg.setDepth(1000); // foreground
   }
 
   private startCountdown() {
@@ -709,16 +680,12 @@ export class MainScene extends Phaser.Scene {
       this.itemsCaughtOrMissed >= this.itemsToDrop
     ) {
       this.gameOver = true;
-      this.gameOverText.setText("Victory!\nFinal Score: " + this.score);
+      this.gameOverPanel.setVisible(true);
+      this.gameOverBorder.setVisible(true);
+      this.gameOverText.setText("Victory!");
       this.gameOverText.setVisible(true);
-      // Show the panel
-      const panel = this.children.getByName(
-        "gameOverPanel"
-      ) as Phaser.GameObjects.Rectangle;
-      if (panel) {
-        panel.setVisible(true);
-      }
-      // Start continuous throwing for victory
+      this.gameOverScoreText.setText(`Final Score: ${this.score}`);
+      this.gameOverScoreText.setVisible(true);
       if (this.dropper.body) {
         this.dropper.setVelocityX(0);
         this.continuousThrow();
@@ -734,22 +701,15 @@ export class MainScene extends Phaser.Scene {
 
   private gameOverHandler() {
     this.gameOver = true;
-    // Play dizzy animation and keep it playing
     this.player.anims.play("wizard-dizzy", true);
-    this.gameOverText.setText("Game Over!\nFinal Score: " + this.score);
+    this.gameOverPanel.setVisible(true);
+    this.gameOverBorder.setVisible(true);
+    this.gameOverText.setText("Victory!");
     this.gameOverText.setVisible(true);
-    // Show the panel
-    const panel = this.children.getByName(
-      "gameOverPanel"
-    ) as Phaser.GameObjects.Rectangle;
-    if (panel) {
-      panel.setVisible(true);
-    }
-
-    // Stop golem movement and make it stay in place
+    this.gameOverScoreText.setText(`Final Score: ${this.score}`);
+    this.gameOverScoreText.setVisible(true);
     if (this.dropper.body) {
       this.dropper.setVelocityX(0);
-      // Start continuous throwing animation
       this.continuousThrow();
     }
   }
@@ -925,8 +885,8 @@ export class MainScene extends Phaser.Scene {
           particles.destroy();
         },
       });
-      // Screen shake
-      this.cameras.main.shake(100, 0.005);
+      // Screen shake: use camera shake only
+      this.cameras.main.shake(350, 0.002); // match duration for both
     }
   }
 
@@ -965,8 +925,8 @@ export class MainScene extends Phaser.Scene {
       },
     });
 
-    // Screen shake
-    this.cameras.main.shake(200, 0.01);
+    // Screen shake: use camera shake only
+    this.cameras.main.shake(350, 0.008); // smoother, less jittery
   }
 
   private handleJump() {
@@ -1046,13 +1006,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
-    // Subtle parallax backgrounds based on player x
-    if (this.player && this.player.body) {
-      this.bg1.tilePositionX = this.player.x * 0.2;
-      this.bg2.tilePositionX = this.player.x * 0.1;
-      this.bg3.tilePositionX = this.player.x * 0.05;
-    }
-
     if (this.gameOver) {
       // Only stop player movement
       if (this.player.body) {
@@ -1344,6 +1297,14 @@ export class MainScene extends Phaser.Scene {
           });
         });
       }
+    }
+
+    if (this.player && this.player.body) {
+      // Parallax for single wide bg1
+      this.bg1.x = GAME_WIDTH / 2 - this.player.x * 0.2;
+      this.groundPlatformImg.x = GAME_WIDTH / 2 - this.player.x * 0.2;
+      this.bg2.tilePositionX = this.player.x * 0.1;
+      this.bg3.tilePositionX = this.player.x * 0.05;
     }
   }
 }
