@@ -1401,6 +1401,42 @@ export class MainScene extends Phaser.Scene {
               }
               item.destroy();
             });
+
+            // Add player-item collision
+            this.physics.add.overlap(item, this.player, () => {
+              if (itemType === "HARMFUL") {
+                this.lives--;
+                this.updateLivesText();
+                this.createMissEffect(item.x, item.y);
+                this.createHitEffect(item.x, item.y);
+                this.stunPlayer();
+                if (this.lives <= 0) {
+                  this.gameOverHandler();
+                }
+              } else {
+                this.score += ITEM_TYPES[itemType].points;
+                this.scoreText.setText("Score: " + this.score);
+                this.createCatchEffect(
+                  item.x,
+                  item.y,
+                  ITEM_TYPES[itemType].points
+                );
+                // Wizard jumps with joy on good catch
+                if (
+                  this.player.body &&
+                  (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
+                ) {
+                  this.player.setVelocityY(-300);
+                  this.player.play("wizard-jump", true);
+                }
+              }
+              this.itemsCaughtOrMissed++;
+              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
+                this.startNewRound();
+              }
+              item.destroy();
+            });
+
             // Wait 0.25s after throw before resuming movement
             this.time.delayedCall(250, () => {
               if (this.dropper.body) {
