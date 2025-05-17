@@ -197,6 +197,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image("platform-img", "images/bg/platform.png");
     this.load.image("bg-layer1-wide", "images/bg/MathWizBG/Layer1 wide.png");
     this.load.image("ground-img", "images/bg/ground.png");
+    this.load.image("block-img", "images/bg/block.png");
 
     this.load.spritesheet("spell-hit2", "images/Effects/Spells/2.png", {
       frameWidth: 256,
@@ -751,6 +752,11 @@ export class MainScene extends Phaser.Scene {
         this.dropper.setVelocityX(0);
         this.continuousThrow();
       }
+      // Stop player movement
+      if (this.player.body) {
+        this.player.setVelocityX(0);
+        this.player.setVelocityY(0);
+      }
       return;
     }
     this.lives = LIVES_PER_ROUND;
@@ -758,6 +764,9 @@ export class MainScene extends Phaser.Scene {
     this.updateLivesText();
     this.gameOver = false;
     this.gameOverText.setVisible(false);
+    this.gameOverPanel.setVisible(false);
+    this.gameOverBorder.setVisible(false);
+    this.gameOverScoreText.setVisible(false);
   }
 
   private gameOverHandler() {
@@ -786,8 +795,43 @@ export class MainScene extends Phaser.Scene {
       this.createGolemBlast();
     });
     this.dropper.once("animationcomplete-golem-throw", () => {
-      if (!this.gameOverText.text.includes("Victory")) {
-        // Only spawn bullets during game over
+      if (this.gameOverText.text.includes("Victory")) {
+        // Spawn gems during victory
+        for (let i = 0; i < 3; i++) {
+          // Create 3 items per throw
+          const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
+          const spawnY = this.topPlatform.y + 50; // Spawn below the platform
+          const item = this.physics.add.sprite(randomX, spawnY, "gem-1");
+
+          // Gem settings
+          item.displayWidth = 50;
+          item.displayHeight = 50;
+          item.play("gem-sparkle");
+
+          const itemBody = item.body as Phaser.Physics.Arcade.Body;
+          if (itemBody) {
+            itemBody.setGravityY(300);
+            itemBody.setAllowGravity(true);
+            itemBody.setSize(50, 50);
+            itemBody.setOffset(0.5, 0);
+          }
+
+          // Destroy item when it hits ground and create spell effect
+          this.physics.add.collider(item, this.ground, () => {
+            const localX = item.x - this.fgContainer.x;
+            const impactY =
+              item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
+            const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
+            this.fgContainer.add(spell2);
+            spell2.setScale(0.35);
+            spell2.setOrigin(0.5);
+            spell2.play("spell-hit2", true);
+            spell2.once("animationcomplete", () => spell2.destroy());
+            item.destroy();
+          });
+        }
+      } else {
+        // Only spawn bullets during game over (not victory)
         for (let i = 0; i < 3; i++) {
           // Create 3 items per throw
           const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
@@ -827,7 +871,7 @@ export class MainScene extends Phaser.Scene {
     if (data.itemsEarned) {
       this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
     } else {
-      this.itemsToDrop = 20; // Changed back to 20 from 5
+      this.itemsToDrop = 2; // Changed from 20 to 2
     }
     this.itemsDropped = 0;
     this.itemsCaughtOrMissed = 0;
@@ -1025,11 +1069,57 @@ export class MainScene extends Phaser.Scene {
     const golemLeadingEdge = golem.x + (direction * golem.displayWidth) / 2;
     const blastX = golemLeadingEdge + direction * blastOffset;
     const blastY = golem.y + golem.displayHeight / 2 - 10;
+
+    // Create the block that pops up
+    const block = this.add
+      .image(blastX, TOP_PLATFORM_HEIGHT / 2 + 155 + 15, "block-img") // Start 15px below platform
+      .setOrigin(0.5, 1)
+      .setDepth(900) // Between golem (100) and blast (1000)
+      .setDisplaySize(50, 50 * (125 / 148)); // Maintain aspect ratio (148:125)
+
+    // Add dust particles
+    const dustParticles = this.add
+      .particles(blastX, TOP_PLATFORM_HEIGHT / 2 + 155 + 15, "dust-circle", {
+        speed: { min: 50, max: 100 },
+        angle: { min: 200, max: 340 }, // Upward spread
+        scale: { start: 0.5, end: 0 },
+        lifespan: 400,
+        quantity: 8,
+        alpha: { start: 0.7, end: 0 },
+        gravityY: 300,
+        emitting: false,
+      })
+      .setDepth(899);
+
+    // Emit particles when block bounces
+    dustParticles.explode(8);
+
+    // Animate the block bouncing
+    this.tweens.add({
+      targets: block,
+      y: TOP_PLATFORM_HEIGHT / 2 + 155, // Bounce up to platform level
+      duration: 150,
+      ease: "Quad.easeOut",
+      yoyo: true,
+      onComplete: () => {
+        this.tweens.add({
+          targets: block,
+          alpha: 0,
+          duration: 150,
+          onComplete: () => {
+            block.destroy();
+            dustParticles.destroy();
+          },
+        });
+      },
+    });
+
     const blast = this.add
       .sprite(blastX, blastY, "golem-blast")
       .setOrigin(0.5, 1)
       .setDepth(1000);
     blast.setScale(0.25, 0.4); // Scale to make blast 50px wide
+    if (!facingRight) blast.setFlipX(true);
 
     // Create a parallel tween for scale and alpha
     this.tweens.add({
@@ -1127,9 +1217,9 @@ export class MainScene extends Phaser.Scene {
     const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
     if (dropperBody && !this.isThrowing) {
       const platformLeft =
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2 + 20; // Added 20px
+        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2 + 35; // Added 35px (20 + 15)
       const platformRight =
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2 - 20; // Subtracted 20px
+        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2 - 35; // Subtracted 35px (20 + 15)
       if (this.dropper.x <= platformLeft) {
         this.dropper.x = platformLeft;
         this.dropperSpeed = Phaser.Math.Between(
@@ -1265,7 +1355,7 @@ export class MainScene extends Phaser.Scene {
               if (itemType === "REQUIRED") {
                 itemBody.setSize(40, 40);
               } else if (itemType === "BONUS") {
-                itemBody.setSize(50, 50); // Increased to 50
+                itemBody.setSize(50, 50); // Set size for gemstones
               } else {
                 // For bullets, swap dimensions since we rotate 90 degrees
                 itemBody.setSize(40 * (538 / 244), 40);
@@ -1304,39 +1394,6 @@ export class MainScene extends Phaser.Scene {
                 }
               } else if (itemType === "HARMFUL") {
                 this.createExplosionEffect(item.x, item.y);
-              }
-              this.itemsCaughtOrMissed++;
-              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
-                this.startNewRound();
-              }
-              item.destroy();
-            });
-            this.physics.add.overlap(item, this.player, () => {
-              if (itemType === "HARMFUL") {
-                this.lives--;
-                this.updateLivesText();
-                this.createMissEffect(item.x, item.y);
-                this.createHitEffect(item.x, item.y);
-                this.stunPlayer();
-                if (this.lives <= 0) {
-                  this.gameOverHandler();
-                }
-              } else {
-                this.score += ITEM_TYPES[itemType].points;
-                this.scoreText.setText("Score: " + this.score);
-                this.createCatchEffect(
-                  item.x,
-                  item.y,
-                  ITEM_TYPES[itemType].points
-                );
-                // Wizard jumps with joy on good catch
-                if (
-                  this.player.body &&
-                  (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
-                ) {
-                  this.player.setVelocityY(-300);
-                  this.player.play("wizard-jump", true);
-                }
               }
               this.itemsCaughtOrMissed++;
               if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
