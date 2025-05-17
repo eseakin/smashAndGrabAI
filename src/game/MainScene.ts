@@ -464,6 +464,12 @@ export class MainScene extends Phaser.Scene {
     this.player.setCollideWorldBounds(true);
     this.player.play("wizard-rest");
 
+    // Set initial parallax positions based on player starting position
+    this.bg1.x = GAME_WIDTH / 2 - this.player.x * 0.2;
+    this.fgContainer.x = -this.player.x * 0.2;
+    this.bg2.tilePositionX = this.player.x * 0.1;
+    this.bg3.tilePositionX = this.player.x * 0.05;
+
     if (this.player.body) {
       const offsetX = this.player.flipX
         ? -PLAYER_HITBOX_OFFSET_X
@@ -752,11 +758,8 @@ export class MainScene extends Phaser.Scene {
         this.dropper.setVelocityX(0);
         this.continuousThrow();
       }
-      // Stop player movement
-      if (this.player.body) {
-        this.player.setVelocityX(0);
-        this.player.setVelocityY(0);
-      }
+      // Start victory celebration
+      this.startVictoryCelebration();
       return;
     }
     this.lives = LIVES_PER_ROUND;
@@ -767,6 +770,58 @@ export class MainScene extends Phaser.Scene {
     this.gameOverPanel.setVisible(false);
     this.gameOverBorder.setVisible(false);
     this.gameOverScoreText.setVisible(false);
+  }
+
+  private startVictoryCelebration() {
+    if (!this.gameOverText.text.includes("Victory")) return;
+
+    // Random movement pattern
+    const moveLeft = () => {
+      if (!this.gameOverText.text.includes("Victory")) return;
+      this.player.setVelocityX(-PLAYER_SPEED * 1.5);
+      this.player.setFlipX(true);
+      this.player.anims.play("wizard-walk", true);
+
+      // Random jump
+      if (Phaser.Math.Between(0, 1) === 1) {
+        this.player.setVelocityY(-400);
+        this.player.anims.play("wizard-jump", true);
+      }
+
+      // Random dash
+      if (Phaser.Math.Between(0, 2) === 1) {
+        this.isBoosting = true;
+        this.boostTimer = PLAYER_BOOST_DURATION;
+        this.player.anims.play("wizard-slide", true);
+      }
+
+      this.time.delayedCall(Phaser.Math.Between(500, 1000), moveRight);
+    };
+
+    const moveRight = () => {
+      if (!this.gameOverText.text.includes("Victory")) return;
+      this.player.setVelocityX(PLAYER_SPEED * 1.5);
+      this.player.setFlipX(false);
+      this.player.anims.play("wizard-walk", true);
+
+      // Random jump
+      if (Phaser.Math.Between(0, 1) === 1) {
+        this.player.setVelocityY(-400);
+        this.player.anims.play("wizard-jump", true);
+      }
+
+      // Random dash
+      if (Phaser.Math.Between(0, 2) === 1) {
+        this.isBoosting = true;
+        this.boostTimer = PLAYER_BOOST_DURATION;
+        this.player.anims.play("wizard-slide", true);
+      }
+
+      this.time.delayedCall(Phaser.Math.Between(500, 1000), moveLeft);
+    };
+
+    // Start the celebration
+    moveLeft();
   }
 
   private gameOverHandler() {
@@ -1134,10 +1189,25 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (this.gameOver) {
-      // Only stop player movement
-      if (this.player.body) {
-        this.player.setVelocityX(0);
-        this.player.setVelocityY(0);
+      // Allow movement during victory celebration
+      if (this.gameOverText.text.includes("Victory")) {
+        // Keep physics active for the player but disable control
+        if (this.player.body) {
+          const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+          // Return to idle when landing
+          if (
+            playerBody.blocked.down &&
+            this.player.anims.currentAnim?.key === "wizard-jump"
+          ) {
+            this.player.play("wizard-rest", true);
+          }
+        }
+      } else {
+        // Stop player movement only during game over (not victory)
+        if (this.player.body) {
+          this.player.setVelocityX(0);
+          this.player.setVelocityY(0);
+        }
       }
       if (Phaser.Input.Keyboard.JustDown(this.boostKey)) {
         this.scene.restart();
@@ -1181,8 +1251,8 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Movement with animation (only if not stunned)
-    if (!this.isStunned) {
+    // Movement with animation (only if not stunned and not in victory celebration)
+    if (!this.isStunned && !this.gameOverText.text.includes("Victory")) {
       if (this.cursors.left.isDown) {
         this.player.setVelocityX(-speed);
         this.player.setFlipX(true);
@@ -1451,10 +1521,27 @@ export class MainScene extends Phaser.Scene {
 
     if (this.player && this.player.body) {
       // Parallax for single wide bg1
-      this.bg1.x = GAME_WIDTH / 2 - this.player.x * 0.2;
-      this.fgContainer.x = -this.player.x * 0.2;
-      this.bg2.tilePositionX = this.player.x * 0.1;
-      this.bg3.tilePositionX = this.player.x * 0.05;
+      const targetX = GAME_WIDTH / 2 - this.player.x * 0.2;
+      const currentX = this.bg1.x;
+      // Smoothly interpolate to target position
+      this.bg1.x = currentX + (targetX - currentX) * 0.1;
+
+      const targetContainerX = -this.player.x * 0.2;
+      const currentContainerX = this.fgContainer.x;
+      // Smoothly interpolate to target position
+      this.fgContainer.x =
+        currentContainerX + (targetContainerX - currentContainerX) * 0.1;
+
+      // Smooth tile position changes
+      const targetTileX = this.player.x * 0.1;
+      const currentTileX = this.bg2.tilePositionX;
+      this.bg2.tilePositionX =
+        currentTileX + (targetTileX - currentTileX) * 0.1;
+
+      const targetTileX3 = this.player.x * 0.05;
+      const currentTileX3 = this.bg3.tilePositionX;
+      this.bg3.tilePositionX =
+        currentTileX3 + (targetTileX3 - currentTileX3) * 0.1;
     }
 
     // Return to idle when landing
