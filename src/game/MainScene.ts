@@ -7,8 +7,8 @@ const TOP_PLATFORM_HEIGHT = 20;
 const PLATFORM_WIDTH = 800;
 const PLAYER_COLOR = 0x1976d2;
 const PLAYER_SPEED = 200;
-const PLAYER_BOOST_MULTIPLIER = 1.5;
-const PLAYER_BOOST_DURATION = 1500; // ms
+const PLAYER_BOOST_MULTIPLIER = 2.0;
+const PLAYER_BOOST_DURATION = 300; // ms
 const DROPPER_WIDTH = 40;
 const DROPPER_HEIGHT = 40;
 const DROPPER_MIN_SPEED = 100;
@@ -63,6 +63,8 @@ export class MainScene extends Phaser.Scene {
   private itemsDropped: number = 0;
   private itemsCaughtOrMissed: number = 0;
   private trailTimer = 0;
+  private dashTrailTimer = 0;
+  private walkTrailTimer = 0;
   private bg3!: Phaser.GameObjects.TileSprite;
   private bg2!: Phaser.GameObjects.TileSprite;
   private bg1!: Phaser.GameObjects.Sprite;
@@ -204,6 +206,12 @@ export class MainScene extends Phaser.Scene {
       frameWidth: 256,
       frameHeight: 256,
     });
+
+    // Slide animation (single frame)
+    this.load.image(
+      "wizard-slide-0",
+      "images/Wizard/Wizard character sprites/RESIZE/Slide.png"
+    );
   }
 
   create() {
@@ -427,6 +435,13 @@ export class MainScene extends Phaser.Scene {
         key: `wizard-dizzy-${i}`,
       })),
       frameRate: 8,
+      repeat: -1,
+    });
+    // Slide animation (single frame)
+    this.anims.create({
+      key: "wizard-slide",
+      frames: [{ key: "wizard-slide-0" }],
+      frameRate: 1,
       repeat: -1,
     });
     // Calculate y so bottom of hitbox is at ground, then raise by 15px
@@ -675,6 +690,16 @@ export class MainScene extends Phaser.Scene {
     platformImg.displayWidth = 850;
     platformImg.displayHeight = (334 / 1889) * 850; // maintain aspect ratio
     platformImg.setDepth(1000); // foreground
+
+    // Generate a cartoony dust-circle texture (dark outline, light fill)
+    const dustSize = 20;
+    const graphics = this.add.graphics();
+    graphics.fillStyle(0xf8f8f8, 1); // light gray fill
+    graphics.lineStyle(3, 0x333333, 1); // dark outline
+    graphics.strokeCircle(dustSize / 2, dustSize / 2, dustSize / 2 - 2);
+    graphics.fillCircle(dustSize / 2, dustSize / 2, dustSize / 2 - 4);
+    graphics.generateTexture("dust-circle", dustSize, dustSize);
+    graphics.destroy();
   }
 
   private startCountdown() {
@@ -1060,33 +1085,6 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // Trail effect: always show when moving, more pronounced when sprinting
-    let trailInterval = this.isBoosting ? 20 : 60;
-    let trailAlpha = this.isBoosting ? 0.3 : 0.12;
-    if (this.player.body && this.player.body.velocity.x !== 0) {
-      this.trailTimer += delta;
-      if (this.trailTimer > trailInterval) {
-        this.trailTimer = 0;
-        const trail = this.add.rectangle(
-          this.player.x,
-          this.player.y,
-          this.player.displayWidth,
-          this.player.displayHeight,
-          PLAYER_COLOR,
-          trailAlpha
-        );
-        trail.setDepth(-1);
-        this.tweens.add({
-          targets: trail,
-          alpha: 0,
-          duration: 250,
-          onComplete: () => trail.destroy(),
-        });
-      }
-    } else {
-      this.trailTimer = trailInterval; // so it spawns immediately on next move
-    }
-
     // Round timer
     this.roundTimer += delta;
     const timeLeft = Math.max(
@@ -1132,7 +1130,12 @@ export class MainScene extends Phaser.Scene {
 
       // Player animation
       if (!this.isStunned) {
-        if (this.player.body && !this.player.body.blocked.down) {
+        if (this.isBoosting) {
+          // Play slide animation during boost
+          if (this.player.anims.currentAnim?.key !== "wizard-slide") {
+            this.player.play("wizard-slide", true);
+          }
+        } else if (this.player.body && !this.player.body.blocked.down) {
           // Keep jump animation playing while in air
           if (this.player.anims.currentAnim?.key !== "wizard-jump") {
             this.player.play("wizard-jump", true);
@@ -1358,6 +1361,73 @@ export class MainScene extends Phaser.Scene {
       if (isOnGround && this.player.anims.currentAnim?.key === "wizard-jump") {
         this.player.play("wizard-rest", true);
       }
+    }
+
+    // Dash (slide) trail
+    if (
+      this.isBoosting &&
+      this.player.body &&
+      Math.abs(this.player.body.velocity.x) > 0 &&
+      !this.isStunned
+    ) {
+      this.dashTrailTimer += delta;
+      if (this.dashTrailTimer > 30) {
+        this.dashTrailTimer = 0;
+        const dust = this.add.sprite(
+          this.player.x + (this.player.flipX ? -38 : 38),
+          this.player.y + this.player.displayHeight / 2 - 12,
+          "dust-circle"
+        );
+        const scale = Phaser.Math.FloatBetween(0.5, 0.8);
+        dust.setScale(scale);
+        dust.setAlpha(0.7);
+        dust.setDepth(110);
+        this.tweens.add({
+          targets: dust,
+          alpha: 0,
+          y: dust.y + Phaser.Math.Between(8, 18),
+          scale: scale * 3.5,
+          duration: Phaser.Math.Between(300, 450),
+          ease: "Quad.easeOut",
+          onComplete: () => dust.destroy(),
+        });
+      }
+    } else {
+      this.dashTrailTimer = 30;
+    }
+
+    // Regular movement trail
+    if (
+      !this.isBoosting &&
+      this.player.body &&
+      Math.abs(this.player.body.velocity.x) > 0 &&
+      !this.isStunned
+    ) {
+      this.walkTrailTimer += delta;
+      if (this.walkTrailTimer > 40) {
+        // Emit twice as often
+        this.walkTrailTimer = 0;
+        const dust = this.add.sprite(
+          this.player.x + (this.player.flipX ? 14 : -14),
+          this.player.y + this.player.displayHeight / 2 - 2,
+          "dust-circle"
+        );
+        const scale = Phaser.Math.FloatBetween(0.38, 0.55) * 1.2; // 20% bigger
+        dust.setScale(scale);
+        dust.setAlpha(Phaser.Math.FloatBetween(0.44, 0.64));
+        dust.setDepth(110);
+        this.tweens.add({
+          targets: dust,
+          alpha: 0,
+          y: dust.y + Phaser.Math.Between(4, 10),
+          scale: scale * 1.5,
+          duration: Phaser.Math.Between(250, 350),
+          ease: "Quad.easeOut",
+          onComplete: () => dust.destroy(),
+        });
+      }
+    } else {
+      this.walkTrailTimer = 40;
     }
   }
 }
