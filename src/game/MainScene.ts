@@ -20,8 +20,8 @@ const MIN_DROP_INTERVAL = 1000; // ms
 const MAX_DROP_INTERVAL = 3000; // ms
 const LIVES = 3;
 const DIFFICULTY_INCREASE_INTERVAL = 2000; // Increase difficulty every 2 seconds
-const DIFFICULTY_SPEED_MULTIPLIER = 0.15; // 15% speed increase per level
-const DIFFICULTY_GRAVITY_MULTIPLIER = 0.15; // 15% gravity increase per level
+const DIFFICULTY_SPEED_MULTIPLIER = 0.3; // 30% speed increase per level
+const DIFFICULTY_GRAVITY_MULTIPLIER = 0.3; // 30% gravity increase per level (doubled from 15%)
 const DIFFICULTY_DROP_INTERVAL_MULTIPLIER = 0.1; // 10% faster drops per level
 const DIFFICULTY_PLATFORM_RANGE_MULTIPLIER = 0.1; // 10% wider platform range per level
 const PLAYER_HITBOX_HEIGHT = 80;
@@ -62,7 +62,8 @@ export class MainScene extends Phaser.Scene {
   private gameOverHighScoreText!: Phaser.GameObjects.Text;
   private earnedItems: Phaser.Physics.Arcade.Sprite[] = [];
   private difficultyLevel = 1;
-  private difficultyTimer = 0;
+  private itemsCaught = 0; // Add counter for caught items
+  private totalItemsDropped = 0; // Add counter for total items dropped
   private countdown = 0;
   private countdownText!: Phaser.GameObjects.Text;
   private countdownActive = false;
@@ -82,6 +83,7 @@ export class MainScene extends Phaser.Scene {
   private groundPlatformImg!: Phaser.GameObjects.Image;
   private fgContainer!: Phaser.GameObjects.Container;
   private golemTrailTimer = 0;
+  private debugLevelText!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "MainScene" });
@@ -742,6 +744,17 @@ export class MainScene extends Phaser.Scene {
     graphics.fillCircle(dustSize / 2, dustSize / 2, dustSize / 2 - 4);
     graphics.generateTexture("dust-circle", dustSize, dustSize);
     graphics.destroy();
+
+    // Add debug level counter in top right
+    this.debugLevelText = this.add
+      .text(GAME_WIDTH - 32, 32, "Level: 1", {
+        fontSize: "24px",
+        color: "#fff",
+        fontFamily: "monospace",
+      })
+      .setOrigin(1, 0)
+      .setDepth(0);
+    this.debugLevelText.setResolution(2);
   }
 
   private startCountdown() {
@@ -885,82 +898,164 @@ export class MainScene extends Phaser.Scene {
       platformRight
     );
 
+    // Fixed throw delay range between 1-5 seconds, no difficulty scaling
+    const minDelay = 1000; // 1 second
+    const maxDelay = 5000; // 5 seconds
+    const throwDelay = Phaser.Math.Between(minDelay, maxDelay);
+
     // Play throw animation at 3x speed
     this.dropper.anims.play("golem-throw", true);
-    this.dropper.anims.timeScale = 3; // 3x faster animation
-    // Create blast after 167ms (halfway through the faster animation)
-    this.time.delayedCall(167, () => {
-      this.createGolemBlast();
+    // Scale throw animation speed with difficulty
+    const throwSpeedMultiplier =
+      1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER;
+    this.dropper.anims.timeScale = 3 * throwSpeedMultiplier; // Base 3x speed multiplied by difficulty
+    // Create blast after 500ms (halfway through the animation)
+    this.time.delayedCall(500 / throwSpeedMultiplier, () => {
+      this.createGolemBlast(throwSpeedMultiplier);
     });
     this.dropper.once("animationcomplete-golem-throw", () => {
-      if (this.gameOverText.text.includes("Game Over")) {
-        // Spawn gems during victory
-        for (let i = 0; i < 3; i++) {
-          // Create 3 items per throw
-          const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
-          const spawnY = this.topPlatform.y + 50; // Spawn below the platform
-          const item = this.physics.add.sprite(randomX, spawnY, "gem-1");
+      // Reset animation speed for walk animation
+      this.dropper.anims.timeScale = 1;
+      // Calculate item probabilities based on difficulty
+      const bulletProbability = Math.min(
+        0.5,
+        0.25 + (this.difficultyLevel - 1) * 0.05
+      ); // Start at 25%, max 50%
+      const gemProbability = Math.max(
+        0.05,
+        0.2 - (this.difficultyLevel - 1) * 0.01
+      ); // Start at 20%, decrease by 1% per level, min 5%
+      const coinProbability = 1 - bulletProbability - gemProbability; // Remainder
 
-          // Gem settings
-          item.displayWidth = 50;
-          item.displayHeight = 50;
-          item.play("gem-sparkle");
-
-          const itemBody = item.body as Phaser.Physics.Arcade.Body;
-          if (itemBody) {
-            itemBody.setGravityY(300);
-            itemBody.setAllowGravity(true);
-            itemBody.setSize(50, 50);
-            itemBody.setOffset(0.5, 0);
-          }
-
-          // Destroy item when it hits ground and create spell effect
-          this.physics.add.collider(item, this.ground, () => {
-            const localX = item.x - this.fgContainer.x;
-            const impactY =
-              item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
-            const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
-            this.fgContainer.add(spell2);
-            spell2.setScale(0.35);
-            spell2.setOrigin(0.5);
-            spell2.play("spell-hit2", true);
-            spell2.once("animationcomplete", () => spell2.destroy());
-            item.destroy();
-          });
-        }
+      // Determine item type based on probabilities
+      const roll = Math.random();
+      let itemType: keyof typeof ITEM_TYPES;
+      if (roll < bulletProbability) {
+        itemType = "HARMFUL";
+      } else if (roll < bulletProbability + gemProbability) {
+        itemType = "BONUS";
       } else {
-        // Only spawn bullets during game over (not victory)
-        for (let i = 0; i < 3; i++) {
-          // Create 3 items per throw
-          const randomX = Phaser.Math.Between(50, GAME_WIDTH - 50);
-          const spawnY = this.topPlatform.y + 50; // Spawn below the platform
-          const item = this.physics.add.sprite(randomX, spawnY, "bullet-1");
-
-          // Bullet settings
-          item.displayWidth = 40 * (538 / 244);
-          item.displayHeight = 40;
-          item.setAngle(90);
-          item.play("bullet-spin");
-
-          const itemBody = item.body as Phaser.Physics.Arcade.Body;
-          if (itemBody) {
-            itemBody.setGravityY(300);
-            itemBody.setAllowGravity(true);
-            itemBody.setSize(40 * (538 / 244), 40);
-            itemBody.setOffset(0.5, 0);
-          }
-
-          // Destroy item when it hits ground and create explosion
-          this.physics.add.collider(item, this.ground, () => {
-            this.createExplosionEffect(item.x, item.y);
-            item.destroy();
-          });
-        }
+        itemType = "REQUIRED";
       }
 
-      // Schedule next throw at 3x speed (333ms instead of 1000ms)
-      this.time.delayedCall(333, () => {
-        this.continuousThrow();
+      // Increment total items dropped and check for level up
+      this.totalItemsDropped++;
+      if (this.totalItemsDropped % 5 === 0) {
+        this.difficultyLevel++;
+        this.debugLevelText.setText(`Level: ${this.difficultyLevel}`);
+      }
+
+      const item = this.physics.add.sprite(
+        this.dropper.x + (this.dropper.flipX ? 50 : -50),
+        this.dropper.y + (itemType === "HARMFUL" ? 125 : 115),
+        itemType === "REQUIRED"
+          ? "coin-0"
+          : itemType === "BONUS"
+          ? "gem-1"
+          : "bullet-1"
+      );
+
+      if (itemType === "REQUIRED") {
+        item.displayWidth = 40;
+        item.displayHeight = 40;
+        item.play("coin-spin");
+      } else if (itemType === "BONUS") {
+        item.displayWidth = 50;
+        item.displayHeight = 50;
+        item.play("gem-sparkle");
+      } else {
+        item.displayWidth = 40 * (538 / 244);
+        item.displayHeight = 40;
+        item.setAngle(90);
+        item.play("bullet-spin");
+      }
+
+      const itemBody = item.body as Phaser.Physics.Arcade.Body;
+      if (itemBody) {
+        itemBody.setGravityY(
+          300 * (1 + (this.difficultyLevel - 1) * DIFFICULTY_GRAVITY_MULTIPLIER)
+        );
+        itemBody.setAllowGravity(true);
+        if (itemType === "REQUIRED") {
+          itemBody.setSize(40, 40);
+        } else if (itemType === "BONUS") {
+          itemBody.setSize(50, 50);
+        } else {
+          itemBody.setSize(40 * (538 / 244), 40);
+        }
+        itemBody.setOffset(0.5, 0);
+      }
+
+      this.physics.add.collider(item, this.ground, () => {
+        const localX = item.x - this.fgContainer.x;
+        const impactY =
+          item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
+        if (itemType === "REQUIRED") {
+          const spell9 = this.add.sprite(localX, impactY, "spell-hit9");
+          this.fgContainer.add(spell9);
+          spell9.setScale(0.35);
+          spell9.setOrigin(0.5);
+          spell9.play("spell-hit9", true);
+          spell9.once("animationcomplete", () => spell9.destroy());
+          this.lives--;
+          this.updateLivesText();
+          this.createMissEffect(item.x, item.y);
+          if (this.lives <= 0) {
+            this.gameOverHandler();
+          }
+        } else if (itemType === "BONUS") {
+          const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
+          this.fgContainer.add(spell2);
+          spell2.setScale(0.35);
+          spell2.setOrigin(0.5);
+          spell2.play("spell-hit2", true);
+          spell2.once("animationcomplete", () => spell2.destroy());
+        } else if (itemType === "HARMFUL") {
+          this.createExplosionEffect(item.x, item.y);
+        }
+        item.destroy();
+      });
+
+      this.physics.add.overlap(item, this.player, () => {
+        if (itemType === "HARMFUL") {
+          this.lives--;
+          this.updateLivesText();
+          this.createMissEffect(item.x, item.y);
+          this.createHitEffect(item.x, item.y);
+          this.stunPlayer();
+          if (this.lives <= 0) {
+            this.gameOverHandler();
+          }
+        } else {
+          this.score += ITEM_TYPES[itemType].points;
+          this.scoreText.setText("Score: " + this.score);
+          this.createCatchEffect(item.x, item.y, ITEM_TYPES[itemType].points);
+
+          // Only increment items caught for coins and gems
+          if (itemType === "REQUIRED" || itemType === "BONUS") {
+            this.itemsCaught++;
+            if (this.itemsCaught % 3 === 0) {
+              this.difficultyLevel++;
+              this.debugLevelText.setText(`Level: ${this.difficultyLevel}`);
+            }
+          }
+
+          if (
+            this.player.body &&
+            (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
+          ) {
+            this.player.setVelocityY(-300);
+            this.player.play("wizard-jump", true);
+          }
+        }
+        item.destroy();
+      });
+
+      this.time.delayedCall(250, () => {
+        if (this.dropper.body) {
+          this.dropper.setVelocityX(this.dropperPrevVelocityX);
+        }
+        this.isThrowing = false;
       });
     });
   }
@@ -1132,7 +1227,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Helper to create the golem blast effect under the fist
-  private createGolemBlast() {
+  private createGolemBlast(speedMultiplier: number = 1) {
     const golem = this.dropper;
     const blastOffset = -20;
     const facingRight = golem.flipX === true; // true when facing right, false when facing left
@@ -1165,18 +1260,19 @@ export class MainScene extends Phaser.Scene {
     // Emit particles when block bounces
     dustParticles.explode(8);
 
-    // Animate the block bouncing
+    // Animate the block bouncing - higher bounce with faster speed
+    const bounceHeight = 15 * speedMultiplier; // Scale bounce height with speed
     this.tweens.add({
       targets: block,
-      y: TOP_PLATFORM_HEIGHT / 2 + 155, // Bounce up to platform level
-      duration: 150,
+      y: TOP_PLATFORM_HEIGHT / 2 + 155 - bounceHeight, // Bounce higher with faster speed
+      duration: 150, // Keep normal duration
       ease: "Quad.easeOut",
       yoyo: true,
       onComplete: () => {
         this.tweens.add({
           targets: block,
           alpha: 0,
-          duration: 150,
+          duration: 150, // Keep normal duration
           onComplete: () => {
             block.destroy();
             dustParticles.destroy();
@@ -1198,7 +1294,7 @@ export class MainScene extends Phaser.Scene {
       alpha: 0,
       scaleX: 0.325, // 0.25 * 1.3
       scaleY: 0.52, // 0.4 * 1.3
-      duration: 250,
+      duration: 250, // Keep normal duration
       onComplete: () => blast.destroy(),
     });
   }
@@ -1231,13 +1327,6 @@ export class MainScene extends Phaser.Scene {
     this.gameTime += delta;
     const seconds = Math.floor(this.gameTime / 1000);
     this.gameTimeText.setText(`Time: ${seconds}`);
-
-    // Update difficulty
-    this.difficultyTimer += delta;
-    if (this.difficultyTimer >= DIFFICULTY_INCREASE_INTERVAL) {
-      this.difficultyTimer = 0;
-      this.difficultyLevel++;
-    }
 
     let speed = PLAYER_SPEED;
     if (this.isBoosting) {
@@ -1291,7 +1380,195 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Dropper movement with increasing speed and range
+    // Drop items continuously with fixed timing
+    if (!this.isThrowing) {
+      this.dropTimer += delta;
+      // Fixed interval between 1-5 seconds
+      const minInterval = 1000; // 1 second
+      const maxInterval = 3500; // 5 seconds
+      const currentDropInterval = Phaser.Math.Between(minInterval, maxInterval);
+
+      if (this.dropTimer >= currentDropInterval) {
+        this.dropTimer = 0;
+        this.isThrowing = true;
+
+        // Force stop the golem completely
+        if (this.dropper.body) {
+          this.dropperPrevVelocityX = this.dropper.body.velocity.x;
+          this.dropper.setVelocityX(0);
+          this.dropper.anims.stop();
+          this.dropper.anims.play("golem-rest", true);
+        }
+
+        // Wait 0.01s before playing throw animation
+        this.time.delayedCall(10, () => {
+          this.dropper.anims.play("golem-throw", true);
+          // Scale throw animation speed with difficulty
+          const throwSpeedMultiplier =
+            1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER;
+          this.dropper.anims.timeScale = throwSpeedMultiplier; // Scale with difficulty
+          // Create blast after 500ms (halfway through the animation)
+          this.time.delayedCall(500 / throwSpeedMultiplier, () => {
+            this.createGolemBlast(throwSpeedMultiplier);
+          });
+          this.dropper.once("animationcomplete-golem-throw", () => {
+            // Reset animation speed for walk animation
+            this.dropper.anims.timeScale = 1;
+            // Calculate item probabilities based on difficulty
+            const bulletProbability = Math.min(
+              0.5,
+              0.25 + (this.difficultyLevel - 1) * 0.05
+            ); // Start at 25%, max 50%
+            const gemProbability = Math.max(
+              0.05,
+              0.2 - (this.difficultyLevel - 1) * 0.01
+            ); // Start at 20%, decrease by 1% per level, min 5%
+            const coinProbability = 1 - bulletProbability - gemProbability; // Remainder
+
+            // Determine item type based on probabilities
+            const roll = Math.random();
+            let itemType: keyof typeof ITEM_TYPES;
+            if (roll < bulletProbability) {
+              itemType = "HARMFUL";
+            } else if (roll < bulletProbability + gemProbability) {
+              itemType = "BONUS";
+            } else {
+              itemType = "REQUIRED";
+            }
+
+            // Increment total items dropped and check for level up
+            this.totalItemsDropped++;
+            if (this.totalItemsDropped % 5 === 0) {
+              this.difficultyLevel++;
+              this.debugLevelText.setText(`Level: ${this.difficultyLevel}`);
+            }
+
+            const item = this.physics.add.sprite(
+              this.dropper.x + (this.dropper.flipX ? 50 : -50),
+              this.dropper.y + (itemType === "HARMFUL" ? 125 : 115),
+              itemType === "REQUIRED"
+                ? "coin-0"
+                : itemType === "BONUS"
+                ? "gem-1"
+                : "bullet-1"
+            );
+
+            if (itemType === "REQUIRED") {
+              item.displayWidth = 40;
+              item.displayHeight = 40;
+              item.play("coin-spin");
+            } else if (itemType === "BONUS") {
+              item.displayWidth = 50;
+              item.displayHeight = 50;
+              item.play("gem-sparkle");
+            } else {
+              item.displayWidth = 40 * (538 / 244);
+              item.displayHeight = 40;
+              item.setAngle(90);
+              item.play("bullet-spin");
+            }
+
+            const itemBody = item.body as Phaser.Physics.Arcade.Body;
+            if (itemBody) {
+              itemBody.setGravityY(
+                300 *
+                  (1 +
+                    (this.difficultyLevel - 1) * DIFFICULTY_GRAVITY_MULTIPLIER)
+              );
+              itemBody.setAllowGravity(true);
+              if (itemType === "REQUIRED") {
+                itemBody.setSize(40, 40);
+              } else if (itemType === "BONUS") {
+                itemBody.setSize(50, 50);
+              } else {
+                itemBody.setSize(40 * (538 / 244), 40);
+              }
+              itemBody.setOffset(0.5, 0);
+            }
+
+            this.physics.add.collider(item, this.ground, () => {
+              const localX = item.x - this.fgContainer.x;
+              const impactY =
+                item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
+              if (itemType === "REQUIRED") {
+                const spell9 = this.add.sprite(localX, impactY, "spell-hit9");
+                this.fgContainer.add(spell9);
+                spell9.setScale(0.35);
+                spell9.setOrigin(0.5);
+                spell9.play("spell-hit9", true);
+                spell9.once("animationcomplete", () => spell9.destroy());
+                this.lives--;
+                this.updateLivesText();
+                this.createMissEffect(item.x, item.y);
+                if (this.lives <= 0) {
+                  this.gameOverHandler();
+                }
+              } else if (itemType === "BONUS") {
+                const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
+                this.fgContainer.add(spell2);
+                spell2.setScale(0.35);
+                spell2.setOrigin(0.5);
+                spell2.play("spell-hit2", true);
+                spell2.once("animationcomplete", () => spell2.destroy());
+              } else if (itemType === "HARMFUL") {
+                this.createExplosionEffect(item.x, item.y);
+              }
+              item.destroy();
+            });
+
+            this.physics.add.overlap(item, this.player, () => {
+              if (itemType === "HARMFUL") {
+                this.lives--;
+                this.updateLivesText();
+                this.createMissEffect(item.x, item.y);
+                this.createHitEffect(item.x, item.y);
+                this.stunPlayer();
+                if (this.lives <= 0) {
+                  this.gameOverHandler();
+                }
+              } else {
+                this.score += ITEM_TYPES[itemType].points;
+                this.scoreText.setText("Score: " + this.score);
+                this.createCatchEffect(
+                  item.x,
+                  item.y,
+                  ITEM_TYPES[itemType].points
+                );
+
+                // Only increment items caught for coins and gems
+                if (itemType === "REQUIRED" || itemType === "BONUS") {
+                  this.itemsCaught++;
+                  if (this.itemsCaught % 3 === 0) {
+                    this.difficultyLevel++;
+                    this.debugLevelText.setText(
+                      `Level: ${this.difficultyLevel}`
+                    );
+                  }
+                }
+
+                if (
+                  this.player.body &&
+                  (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
+                ) {
+                  this.player.setVelocityY(-300);
+                  this.player.play("wizard-jump", true);
+                }
+              }
+              item.destroy();
+            });
+
+            this.time.delayedCall(250, () => {
+              if (this.dropper.body) {
+                this.dropper.setVelocityX(this.dropperPrevVelocityX);
+              }
+              this.isThrowing = false;
+            });
+          });
+        });
+      }
+    }
+
+    // Dropper movement with increasing speed
     const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
     if (dropperBody && !this.isThrowing) {
       // Calculate boundaries accounting for golem width
@@ -1383,167 +1660,6 @@ export class MainScene extends Phaser.Scene {
         }
       } else {
         this.dropper.anims.play("golem-rest", true);
-      }
-    }
-
-    // Drop items continuously with increasing frequency
-    if (!this.isThrowing) {
-      this.dropTimer += delta;
-      // Calculate base interval with difficulty scaling
-      const baseInterval =
-        BASE_DROP_INTERVAL *
-        Math.max(
-          0.2,
-          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
-        );
-      // Calculate min and max intervals based on difficulty
-      const minInterval =
-        MIN_DROP_INTERVAL *
-        Math.max(
-          0.2,
-          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
-        );
-      const maxInterval =
-        MAX_DROP_INTERVAL *
-        Math.max(
-          0.2,
-          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
-        );
-
-      // Get random interval between min and max
-      const currentDropInterval = Phaser.Math.Between(minInterval, maxInterval);
-
-      if (this.dropTimer >= currentDropInterval) {
-        this.dropTimer = 0;
-        this.isThrowing = true;
-
-        // Force stop the golem completely
-        if (this.dropper.body) {
-          this.dropperPrevVelocityX = this.dropper.body.velocity.x;
-          this.dropper.setVelocityX(0);
-          this.dropper.anims.stop();
-          this.dropper.anims.play("golem-rest", true);
-        }
-
-        // Wait 0.01s before playing throw animation
-        this.time.delayedCall(10, () => {
-          this.dropper.anims.play("golem-throw", true);
-          // Create blast after 500ms (halfway through the animation)
-          this.time.delayedCall(500, () => {
-            this.createGolemBlast();
-          });
-          this.dropper.once("animationcomplete-golem-throw", () => {
-            const itemType = Phaser.Math.RND.pick(
-              Object.keys(ITEM_TYPES)
-            ) as keyof typeof ITEM_TYPES;
-            const item = this.physics.add.sprite(
-              this.dropper.x + (this.dropper.flipX ? 50 : -50),
-              this.dropper.y + (itemType === "HARMFUL" ? 125 : 115),
-              itemType === "REQUIRED"
-                ? "coin-0"
-                : itemType === "BONUS"
-                ? "gem-1"
-                : "bullet-1"
-            );
-            if (itemType === "REQUIRED") {
-              item.displayWidth = 40;
-              item.displayHeight = 40;
-              item.play("coin-spin");
-            } else if (itemType === "BONUS") {
-              item.displayWidth = 50;
-              item.displayHeight = 50;
-              item.play("gem-sparkle");
-            } else {
-              item.displayWidth = 40 * (538 / 244);
-              item.displayHeight = 40;
-              item.setAngle(90);
-              item.play("bullet-spin");
-            }
-            const itemBody = item.body as Phaser.Physics.Arcade.Body;
-            if (itemBody) {
-              itemBody.setGravityY(
-                300 *
-                  (1 +
-                    (this.difficultyLevel - 1) * DIFFICULTY_GRAVITY_MULTIPLIER)
-              );
-              itemBody.setAllowGravity(true);
-              if (itemType === "REQUIRED") {
-                itemBody.setSize(40, 40);
-              } else if (itemType === "BONUS") {
-                itemBody.setSize(50, 50);
-              } else {
-                itemBody.setSize(40 * (538 / 244), 40);
-              }
-              itemBody.setOffset(0.5, 0);
-            }
-
-            this.physics.add.collider(item, this.ground, () => {
-              const localX = item.x - this.fgContainer.x;
-              const impactY =
-                item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
-              if (itemType === "REQUIRED") {
-                const spell9 = this.add.sprite(localX, impactY, "spell-hit9");
-                this.fgContainer.add(spell9);
-                spell9.setScale(0.35);
-                spell9.setOrigin(0.5);
-                spell9.play("spell-hit9", true);
-                spell9.once("animationcomplete", () => spell9.destroy());
-                this.lives--;
-                this.updateLivesText();
-                this.createMissEffect(item.x, item.y);
-                if (this.lives <= 0) {
-                  this.gameOverHandler();
-                }
-              } else if (itemType === "BONUS") {
-                const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
-                this.fgContainer.add(spell2);
-                spell2.setScale(0.35);
-                spell2.setOrigin(0.5);
-                spell2.play("spell-hit2", true);
-                spell2.once("animationcomplete", () => spell2.destroy());
-              } else if (itemType === "HARMFUL") {
-                this.createExplosionEffect(item.x, item.y);
-              }
-              item.destroy();
-            });
-
-            this.physics.add.overlap(item, this.player, () => {
-              if (itemType === "HARMFUL") {
-                this.lives--;
-                this.updateLivesText();
-                this.createMissEffect(item.x, item.y);
-                this.createHitEffect(item.x, item.y);
-                this.stunPlayer();
-                if (this.lives <= 0) {
-                  this.gameOverHandler();
-                }
-              } else {
-                this.score += ITEM_TYPES[itemType].points;
-                this.scoreText.setText("Score: " + this.score);
-                this.createCatchEffect(
-                  item.x,
-                  item.y,
-                  ITEM_TYPES[itemType].points
-                );
-                if (
-                  this.player.body &&
-                  (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
-                ) {
-                  this.player.setVelocityY(-300);
-                  this.player.play("wizard-jump", true);
-                }
-              }
-              item.destroy();
-            });
-
-            this.time.delayedCall(250, () => {
-              if (this.dropper.body) {
-                this.dropper.setVelocityX(this.dropperPrevVelocityX);
-              }
-              this.isThrowing = false;
-            });
-          });
-        });
       }
     }
 
