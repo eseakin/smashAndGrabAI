@@ -16,8 +16,14 @@ const DROPPER_MAX_SPEED = 300;
 const ITEM_WIDTH = 20;
 const ITEM_HEIGHT = 20;
 const BASE_DROP_INTERVAL = 2000; // ms
-const LIVES_PER_ROUND = 3;
-const ROUND_DURATION = 60000; // 60 seconds per round
+const MIN_DROP_INTERVAL = 1000; // ms
+const MAX_DROP_INTERVAL = 3000; // ms
+const LIVES = 3;
+const DIFFICULTY_INCREASE_INTERVAL = 2000; // Increase difficulty every 2 seconds
+const DIFFICULTY_SPEED_MULTIPLIER = 0.15; // 15% speed increase per level
+const DIFFICULTY_GRAVITY_MULTIPLIER = 0.15; // 15% gravity increase per level
+const DIFFICULTY_DROP_INTERVAL_MULTIPLIER = 0.1; // 10% faster drops per level
+const DIFFICULTY_PLATFORM_RANGE_MULTIPLIER = 0.1; // 10% wider platform range per level
 const PLAYER_HITBOX_HEIGHT = 80;
 const PLAYER_HITBOX_OFFSET_X = -10;
 const PLAYER_JUMP_HITBOX_HEIGHT = 130; // 80 + 50
@@ -43,25 +49,23 @@ export class MainScene extends Phaser.Scene {
   private leftWall!: Phaser.GameObjects.Rectangle;
   private rightWall!: Phaser.GameObjects.Rectangle;
   private score = 0;
+  private highScore = 0;
   private scoreText!: Phaser.GameObjects.Text;
-  private lives = LIVES_PER_ROUND;
+  private highScoreText!: Phaser.GameObjects.Text;
+  private lives = LIVES;
   private livesTexts: Phaser.GameObjects.Text[] = [];
-  private round = 1;
-  private roundText!: Phaser.GameObjects.Text;
-  private roundTimer = 0;
-  private roundTimerText!: Phaser.GameObjects.Text;
+  private gameTime = 0;
+  private gameTimeText!: Phaser.GameObjects.Text;
   private gameOver = false;
   private gameOverText!: Phaser.GameObjects.Text;
   private gameOverScoreText!: Phaser.GameObjects.Text;
+  private gameOverHighScoreText!: Phaser.GameObjects.Text;
   private earnedItems: Phaser.Physics.Arcade.Sprite[] = [];
-  private itemsLeftText!: Phaser.GameObjects.Text;
-  private maxRounds = 2;
+  private difficultyLevel = 1;
+  private difficultyTimer = 0;
   private countdown = 0;
   private countdownText!: Phaser.GameObjects.Text;
   private countdownActive = false;
-  private itemsToDrop: number = 0;
-  private itemsDropped: number = 0;
-  private itemsCaughtOrMissed: number = 0;
   private trailTimer = 0;
   private dashTrailTimer = 0;
   private walkTrailTimer = 0;
@@ -369,32 +373,24 @@ export class MainScene extends Phaser.Scene {
     this.topPlatform = this.add
       .rectangle(
         GAME_WIDTH / 2,
-        TOP_PLATFORM_HEIGHT / 2 + 145, // Added +40 to lower platform
+        TOP_PLATFORM_HEIGHT / 2 + 145,
         PLATFORM_WIDTH,
         TOP_PLATFORM_HEIGHT,
         0x6d4c41
       )
-      .setAlpha(0); // Make the platform transparent
+      .setAlpha(0);
     this.physics.add.existing(this.topPlatform, true);
 
-    // Left boundary
-    this.leftWall = this.add.rectangle(
-      0,
-      GAME_HEIGHT / 2,
-      10,
-      GAME_HEIGHT,
-      0x333333
-    );
+    // Left boundary (for player)
+    this.leftWall = this.add
+      .rectangle(0, GAME_HEIGHT / 2, 10, GAME_HEIGHT, 0x333333)
+      .setAlpha(0);
     this.physics.add.existing(this.leftWall, true);
 
-    // Right boundary
-    this.rightWall = this.add.rectangle(
-      GAME_WIDTH,
-      GAME_HEIGHT / 2,
-      10,
-      GAME_HEIGHT,
-      0x333333
-    );
+    // Right boundary (for player)
+    this.rightWall = this.add
+      .rectangle(GAME_WIDTH, GAME_HEIGHT / 2, 10, GAME_HEIGHT, 0x333333)
+      .setAlpha(0);
     this.physics.add.existing(this.rightWall, true);
 
     // Player (wizard)
@@ -533,6 +529,9 @@ export class MainScene extends Phaser.Scene {
       dropperBody.setCollideWorldBounds(true); // Ensure world bounds collision
       dropperBody.setAllowGravity(false); // Explicitly disable gravity
       dropperBody.setVelocityY(0); // Ensure no vertical velocity
+      dropperBody.setMaxVelocity(300, 0); // Limit horizontal velocity
+      dropperBody.setDrag(0); // No drag
+      dropperBody.setFriction(0); // No friction
     }
 
     // Collisions
@@ -542,8 +541,6 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.leftWall);
     this.physics.add.collider(this.player, this.rightWall);
     this.physics.add.collider(this.dropper, this.topPlatform);
-    this.physics.add.collider(this.dropper, this.leftWall);
-    this.physics.add.collider(this.dropper, this.rightWall);
 
     // Input
     this.cursors = this.input!.keyboard!.createCursorKeys();
@@ -561,19 +558,34 @@ export class MainScene extends Phaser.Scene {
     const scoreboardY = 16;
     const spacing = 140;
     this.scoreText = this.add
-      .text(
-        Math.round(32), // Left side, integer
-        Math.round(GAME_HEIGHT - 32), // Bottom, integer
-        "Score: 0",
-        {
-          fontSize: "30px",
-          color: "#fff",
-          fontFamily: "monospace",
-        }
-      )
-      .setOrigin(0, 1) // Set origin to bottom left
-      .setDepth(0); // UI at bottom layer
+      .text(Math.round(32), Math.round(GAME_HEIGHT - 32), "Score: 0", {
+        fontSize: "30px",
+        color: "#fff",
+        fontFamily: "monospace",
+      })
+      .setOrigin(0, 1)
+      .setDepth(0);
     this.scoreText.setResolution(2);
+
+    this.highScoreText = this.add
+      .text(Math.round(32), Math.round(GAME_HEIGHT - 70), "High Score: 0", {
+        fontSize: "24px",
+        color: "#fff",
+        fontFamily: "monospace",
+      })
+      .setOrigin(0, 1)
+      .setDepth(0);
+    this.highScoreText.setResolution(2);
+
+    this.gameTimeText = this.add
+      .text(Math.round(GAME_WIDTH / 2), Math.round(32), "Time: 0", {
+        fontSize: "30px",
+        color: "#fff",
+        fontFamily: "monospace",
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(0);
+    this.gameTimeText.setResolution(2);
 
     // Create hearts with 5px spacing
     const heartSize = 30;
@@ -634,6 +646,28 @@ export class MainScene extends Phaser.Scene {
         fontStyle: "italic",
         stroke: "#222222", // Black outline
         strokeThickness: 6,
+        shadow: {
+          offsetX: 2,
+          offsetY: 2,
+          color: "#222222",
+          blur: 4,
+          fill: true,
+        },
+      })
+      .setOrigin(0.5)
+      .setVisible(false)
+      .setDepth(300);
+
+    // Add high score text
+    this.gameOverHighScoreText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 120, "", {
+        fontSize: "32px",
+        color: "#FF9800",
+        fontFamily:
+          "'UnifrakturCook', 'Cinzel Decorative', 'MedievalSharp', serif",
+        fontStyle: "italic",
+        stroke: "#222222",
+        strokeThickness: 4,
         shadow: {
           offsetX: 2,
           offsetY: 2,
@@ -740,42 +774,19 @@ export class MainScene extends Phaser.Scene {
   }
 
   private startNewRound() {
-    this.round++;
-    if (
-      this.round > this.maxRounds ||
-      this.itemsCaughtOrMissed >= this.itemsToDrop
-    ) {
-      this.gameOver = true;
-      this.gameOverPanel.setVisible(true);
-      this.gameOverBorder.setVisible(true);
-      this.gameOverText.setText("Victory!");
-      this.gameOverText.setVisible(true);
-      this.gameOverScoreText.setText(`Final Score: ${this.score}`);
-      this.gameOverScoreText.setVisible(true);
-      if (this.dropper.body) {
-        this.dropper.setVelocityX(0);
-        this.continuousThrow();
-      }
-      // Start victory celebration
-      this.startVictoryCelebration();
-      return;
-    }
-    this.lives = LIVES_PER_ROUND;
-    this.roundTimer = 0;
-    this.updateLivesText();
+    this.lives = LIVES;
     this.gameOver = false;
     this.gameOverText.setVisible(false);
     this.gameOverPanel.setVisible(false);
     this.gameOverBorder.setVisible(false);
     this.gameOverScoreText.setVisible(false);
+    this.gameOverHighScoreText.setVisible(false);
   }
 
   private startVictoryCelebration() {
-    if (!this.gameOverText.text.includes("Victory")) return;
-
     // Random movement pattern
     const moveLeft = () => {
-      if (!this.gameOverText.text.includes("Victory")) return;
+      if (!this.gameOver) return;
       this.player.setVelocityX(-PLAYER_SPEED * 1.5);
       this.player.setFlipX(true);
       this.player.anims.play("wizard-walk", true);
@@ -797,7 +808,7 @@ export class MainScene extends Phaser.Scene {
     };
 
     const moveRight = () => {
-      if (!this.gameOverText.text.includes("Victory")) return;
+      if (!this.gameOver) return;
       this.player.setVelocityX(PLAYER_SPEED * 1.5);
       this.player.setFlipX(false);
       this.player.anims.play("wizard-walk", true);
@@ -827,18 +838,52 @@ export class MainScene extends Phaser.Scene {
     this.player.anims.play("wizard-dizzy", true);
     this.gameOverPanel.setVisible(true);
     this.gameOverBorder.setVisible(true);
-    this.gameOverText.setText("Victory!");
+    this.gameOverText.setText("Game Over!");
     this.gameOverText.setVisible(true);
-    this.gameOverScoreText.setText(`Final Score: ${this.score}`);
+
+    // Update high score if needed
+    if (this.score > this.highScore) {
+      this.highScore = this.score;
+      this.gameOverScoreText.setText(`New High Score: ${this.score}!`);
+    } else {
+      this.gameOverScoreText.setText(`Score: ${this.score}`);
+    }
     this.gameOverScoreText.setVisible(true);
+
+    this.gameOverHighScoreText.setText(`High Score: ${this.highScore}`);
+    this.gameOverHighScoreText.setVisible(true);
+
+    // Stop the golem's movement and keep it in place
     if (this.dropper.body) {
       this.dropper.setVelocityX(0);
+      // Ensure golem stays within platform bounds
+      const golemWidth = 150;
+      const platformLeft = 85 + golemWidth / 2;
+      const platformRight = GAME_WIDTH - 100 - golemWidth / 2;
+      this.dropper.x = Phaser.Math.Clamp(
+        this.dropper.x,
+        platformLeft,
+        platformRight
+      );
       this.continuousThrow();
     }
+
+    // Start the celebration animation
+    this.startVictoryCelebration();
   }
 
   private continuousThrow() {
     if (!this.gameOver) return;
+
+    // Ensure golem stays within platform bounds
+    const golemWidth = 150;
+    const platformLeft = 85 + golemWidth / 2;
+    const platformRight = GAME_WIDTH - 100 - golemWidth / 2;
+    this.dropper.x = Phaser.Math.Clamp(
+      this.dropper.x,
+      platformLeft,
+      platformRight
+    );
 
     // Play throw animation at 3x speed
     this.dropper.anims.play("golem-throw", true);
@@ -848,7 +893,7 @@ export class MainScene extends Phaser.Scene {
       this.createGolemBlast();
     });
     this.dropper.once("animationcomplete-golem-throw", () => {
-      if (this.gameOverText.text.includes("Victory")) {
+      if (this.gameOverText.text.includes("Game Over")) {
         // Spawn gems during victory
         for (let i = 0; i < 3; i++) {
           // Create 3 items per throw
@@ -921,38 +966,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   init(data: { itemsEarned?: number }) {
-    if (data.itemsEarned) {
-      this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
-    } else {
-      this.itemsToDrop = 7; // Changed from 2 to 7
-    }
-    this.itemsDropped = 0;
-    this.itemsCaughtOrMissed = 0;
+    // No longer needed since we're not using rounds
   }
 
   private addEarnedItems(count: number) {
-    for (let i = 0; i < count; i++) {
-      const item = this.physics.add.sprite(
-        this.dropper.x,
-        this.dropper.y + DROPPER_HEIGHT / 2 + ITEM_HEIGHT / 2,
-        "coin-0"
-      );
-      item.displayWidth = ITEM_WIDTH;
-      item.displayHeight = ITEM_HEIGHT;
-      item.play("coin-spin");
-      const itemBody = item.body as Phaser.Physics.Arcade.Body;
-      if (itemBody) {
-        itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
-        itemBody.setAllowGravity(true);
-        // Set physics body size to match display size
-        itemBody.setSize(ITEM_WIDTH, ITEM_HEIGHT);
-        // Make item's collision point higher
-        itemBody.setOffset(0.5, 0);
-      }
-      this.earnedItems.push(item);
-      this.physics.add.collider(item, this.dropper);
-      this.physics.add.collider(item, this.earnedItems);
-    }
+    // No longer needed since we're not using rounds
   }
 
   private createCatchEffect(x: number, y: number, points: number) {
@@ -1187,24 +1205,15 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (this.gameOver) {
-      // Allow movement during victory celebration
-      if (this.gameOverText.text.includes("Victory")) {
-        // Keep physics active for the player but disable control
-        if (this.player.body) {
-          const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-          // Return to idle when landing
-          if (
-            playerBody.blocked.down &&
-            this.player.anims.currentAnim?.key === "wizard-jump"
-          ) {
-            this.player.play("wizard-rest", true);
-          }
-        }
-      } else {
-        // Stop player movement only during game over (not victory)
-        if (this.player.body) {
-          this.player.setVelocityX(0);
-          this.player.setVelocityY(0);
+      // Allow movement during game over celebration
+      if (this.player.body) {
+        const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+        // Return to idle when landing
+        if (
+          playerBody.blocked.down &&
+          this.player.anims.currentAnim?.key === "wizard-jump"
+        ) {
+          this.player.play("wizard-rest", true);
         }
       }
       if (Phaser.Input.Keyboard.JustDown(this.boostKey)) {
@@ -1218,15 +1227,16 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // Round timer
-    this.roundTimer += delta;
-    const timeLeft = Math.max(
-      0,
-      Math.ceil((ROUND_DURATION - this.roundTimer) / 1000)
-    );
+    // Update game time
+    this.gameTime += delta;
+    const seconds = Math.floor(this.gameTime / 1000);
+    this.gameTimeText.setText(`Time: ${seconds}`);
 
-    if (this.roundTimer >= ROUND_DURATION) {
-      this.startNewRound();
+    // Update difficulty
+    this.difficultyTimer += delta;
+    if (this.difficultyTimer >= DIFFICULTY_INCREASE_INTERVAL) {
+      this.difficultyTimer = 0;
+      this.difficultyLevel++;
     }
 
     let speed = PLAYER_SPEED;
@@ -1249,8 +1259,8 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Movement with animation (only if not stunned and not in victory celebration)
-    if (!this.isStunned && !this.gameOverText.text.includes("Victory")) {
+    // Movement with animation (only if not stunned and not in game over celebration)
+    if (!this.isStunned && !this.gameOverText.text.includes("Game Over")) {
       if (this.cursors.left.isDown) {
         this.player.setVelocityX(-speed);
         this.player.setFlipX(true);
@@ -1281,27 +1291,40 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Dropper movement with increasing speed
+    // Dropper movement with increasing speed and range
     const dropperBody = this.dropper.body as Phaser.Physics.Arcade.Body;
     if (dropperBody && !this.isThrowing) {
-      const platformLeft =
-        (GAME_WIDTH - PLATFORM_WIDTH) / 2 + DROPPER_WIDTH / 2 + 35; // Added 35px (20 + 15)
-      const platformRight =
-        (GAME_WIDTH + PLATFORM_WIDTH) / 2 - DROPPER_WIDTH / 2 - 35; // Subtracted 35px (20 + 15)
+      // Calculate boundaries accounting for golem width
+      const golemWidth = 150; // golem's display width
+      const platformLeft = 85 + golemWidth / 2; // Left edge + half golem width
+      const platformRight = GAME_WIDTH - 100 - golemWidth / 2; // Right edge - half golem width
+
+      // Force the golem to stay within bounds
       if (this.dropper.x <= platformLeft) {
         this.dropper.x = platformLeft;
         this.dropperSpeed = Phaser.Math.Between(
-          DROPPER_MIN_SPEED * (1 + (this.round - 1) * 0.2),
-          DROPPER_MAX_SPEED * (1 + (this.round - 1) * 0.2)
+          DROPPER_MIN_SPEED *
+            (1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER),
+          DROPPER_MAX_SPEED *
+            (1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER)
         );
       } else if (this.dropper.x >= platformRight) {
         this.dropper.x = platformRight;
         this.dropperSpeed = -Phaser.Math.Between(
-          DROPPER_MIN_SPEED * (1 + (this.round - 1) * 0.2),
-          DROPPER_MAX_SPEED * (1 + (this.round - 1) * 0.2)
+          DROPPER_MIN_SPEED *
+            (1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER),
+          DROPPER_MAX_SPEED *
+            (1 + (this.difficultyLevel - 1) * DIFFICULTY_SPEED_MULTIPLIER)
         );
       }
-      this.dropper.setVelocityX(this.dropperSpeed);
+
+      // Ensure the golem stays within bounds even if it somehow gets past the collision
+      this.dropper.x = Phaser.Math.Clamp(
+        this.dropper.x,
+        platformLeft,
+        platformRight
+      );
+      dropperBody.setVelocityX(this.dropperSpeed);
     }
 
     // Dropper animation
@@ -1363,11 +1386,33 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Only drop items if we haven't dropped all for this round
-    if (this.itemsDropped < this.itemsToDrop && !this.isThrowing) {
+    // Drop items continuously with increasing frequency
+    if (!this.isThrowing) {
       this.dropTimer += delta;
-      const currentDropInterval =
-        BASE_DROP_INTERVAL * Math.max(0.5, 1 - (this.round - 1) * 0.1);
+      // Calculate base interval with difficulty scaling
+      const baseInterval =
+        BASE_DROP_INTERVAL *
+        Math.max(
+          0.2,
+          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
+        );
+      // Calculate min and max intervals based on difficulty
+      const minInterval =
+        MIN_DROP_INTERVAL *
+        Math.max(
+          0.2,
+          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
+        );
+      const maxInterval =
+        MAX_DROP_INTERVAL *
+        Math.max(
+          0.2,
+          1 - (this.difficultyLevel - 1) * DIFFICULTY_DROP_INTERVAL_MULTIPLIER
+        );
+
+      // Get random interval between min and max
+      const currentDropInterval = Phaser.Math.Between(minInterval, maxInterval);
+
       if (this.dropTimer >= currentDropInterval) {
         this.dropTimer = 0;
         this.isThrowing = true;
@@ -1405,11 +1450,10 @@ export class MainScene extends Phaser.Scene {
               item.displayHeight = 40;
               item.play("coin-spin");
             } else if (itemType === "BONUS") {
-              item.displayWidth = 50; // Increased to 50
-              item.displayHeight = 50; // Increased to 50
+              item.displayWidth = 50;
+              item.displayHeight = 50;
               item.play("gem-sparkle");
             } else {
-              // Bullet animation
               item.displayWidth = 40 * (538 / 244);
               item.displayHeight = 40;
               item.setAngle(90);
@@ -1417,60 +1461,52 @@ export class MainScene extends Phaser.Scene {
             }
             const itemBody = item.body as Phaser.Physics.Arcade.Body;
             if (itemBody) {
-              itemBody.setGravityY(300 * (1 + (this.round - 1) * 0.1));
+              itemBody.setGravityY(
+                300 *
+                  (1 +
+                    (this.difficultyLevel - 1) * DIFFICULTY_GRAVITY_MULTIPLIER)
+              );
               itemBody.setAllowGravity(true);
-              // Set physics body size to match display size
               if (itemType === "REQUIRED") {
                 itemBody.setSize(40, 40);
               } else if (itemType === "BONUS") {
-                itemBody.setSize(50, 50); // Set size for gemstones
+                itemBody.setSize(50, 50);
               } else {
-                // For bullets, swap dimensions since we rotate 90 degrees
                 itemBody.setSize(40 * (538 / 244), 40);
               }
-              // Make item's collision point higher
               itemBody.setOffset(0.5, 0);
             }
-            this.itemsDropped++;
+
             this.physics.add.collider(item, this.ground, () => {
               const localX = item.x - this.fgContainer.x;
               const impactY =
                 item.y + (item.displayHeight ? -item.displayHeight / 2 : 0);
               if (itemType === "REQUIRED") {
-                // Play spell-hit9 effect for coin death
                 const spell9 = this.add.sprite(localX, impactY, "spell-hit9");
                 this.fgContainer.add(spell9);
                 spell9.setScale(0.35);
                 spell9.setOrigin(0.5);
                 spell9.play("spell-hit9", true);
                 spell9.once("animationcomplete", () => spell9.destroy());
-              } else if (itemType === "BONUS") {
-                // Play spell-hit2 effect for gem death
-                const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
-                this.fgContainer.add(spell2);
-                spell2.setScale(0.35);
-                spell2.setOrigin(0.5);
-                spell2.play("spell-hit2", true);
-                spell2.once("animationcomplete", () => spell2.destroy());
-              }
-              if (itemType === "REQUIRED") {
                 this.lives--;
                 this.updateLivesText();
                 this.createMissEffect(item.x, item.y);
                 if (this.lives <= 0) {
                   this.gameOverHandler();
                 }
+              } else if (itemType === "BONUS") {
+                const spell2 = this.add.sprite(localX, impactY, "spell-hit2");
+                this.fgContainer.add(spell2);
+                spell2.setScale(0.35);
+                spell2.setOrigin(0.5);
+                spell2.play("spell-hit2", true);
+                spell2.once("animationcomplete", () => spell2.destroy());
               } else if (itemType === "HARMFUL") {
                 this.createExplosionEffect(item.x, item.y);
-              }
-              this.itemsCaughtOrMissed++;
-              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
-                this.startNewRound();
               }
               item.destroy();
             });
 
-            // Add player-item collision
             this.physics.add.overlap(item, this.player, () => {
               if (itemType === "HARMFUL") {
                 this.lives--;
@@ -1489,7 +1525,6 @@ export class MainScene extends Phaser.Scene {
                   item.y,
                   ITEM_TYPES[itemType].points
                 );
-                // Wizard jumps with joy on good catch
                 if (
                   this.player.body &&
                   (this.player.body as Phaser.Physics.Arcade.Body).blocked.down
@@ -1498,14 +1533,9 @@ export class MainScene extends Phaser.Scene {
                   this.player.play("wizard-jump", true);
                 }
               }
-              this.itemsCaughtOrMissed++;
-              if (this.itemsCaughtOrMissed >= this.itemsToDrop) {
-                this.startNewRound();
-              }
               item.destroy();
             });
 
-            // Wait 0.25s after throw before resuming movement
             this.time.delayedCall(250, () => {
               if (this.dropper.body) {
                 this.dropper.setVelocityX(this.dropperPrevVelocityX);
