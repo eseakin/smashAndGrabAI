@@ -74,7 +74,7 @@ export class MainScene extends Phaser.Scene {
   private stunTimer = 0;
   private readonly STUN_DURATION = 1000; // 1 second stun
   private gameOverPanel!: Phaser.GameObjects.Rectangle;
-  private gameOverBorder!: Phaser.GameObjects.Rectangle;
+  private gameOverBorder!: Phaser.GameObjects.Graphics;
   private groundPlatformImg!: Phaser.GameObjects.Image;
   private fgContainer!: Phaser.GameObjects.Container;
   private golemTrailTimer = 0;
@@ -604,18 +604,18 @@ export class MainScene extends Phaser.Scene {
     this.dropper.setDepth(100);
 
     this.gameOverText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, "", {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40, "", {
         fontSize: "96px",
-        color: "#b8860b", // deep gold
+        color: "#FF9800", // Bright orange
         fontFamily:
           "'UnifrakturCook', 'Cinzel Decorative', 'MedievalSharp', serif",
         fontStyle: "bold",
-        stroke: "#6d4c41",
-        strokeThickness: 8,
+        stroke: "#222222", // Black outline
+        strokeThickness: 12,
         shadow: {
           offsetX: 4,
           offsetY: 4,
-          color: "#6d4c41",
+          color: "#222222",
           blur: 8,
           fill: true,
         },
@@ -624,20 +624,20 @@ export class MainScene extends Phaser.Scene {
       .setVisible(false)
       .setDepth(300);
 
-    // Score subtitle (smaller, brown/green, fantasy/serif font)
+    // Score subtitle (smaller, bright green, fantasy/serif font)
     this.gameOverScoreText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, "", {
         fontSize: "40px",
-        color: "#3e5c23", // dark green
+        color: "#FF9800", // Bright orange (same as Victory!)
         fontFamily:
           "'UnifrakturCook', 'Cinzel Decorative', 'MedievalSharp', serif",
         fontStyle: "italic",
-        stroke: "#6d4c41",
-        strokeThickness: 4,
+        stroke: "#222222", // Black outline
+        strokeThickness: 6,
         shadow: {
           offsetX: 2,
           offsetY: 2,
-          color: "#6d4c41",
+          color: "#222222",
           blur: 4,
           fill: true,
         },
@@ -646,36 +646,34 @@ export class MainScene extends Phaser.Scene {
       .setVisible(false)
       .setDepth(300);
 
-    // Add a bold, transparent fantasy panel behind the text
+    // Add a bold, orange fantasy panel behind the text
     const panel = this.add
       .rectangle(
         GAME_WIDTH / 2,
         GAME_HEIGHT / 2,
         500,
         200,
-        0x223366, // deep blue
-        0.8 // 80% opacity
+        0xff9800, // Bright orange
+        0.2 // 20% opacity
       )
       .setOrigin(0.5)
       .setVisible(false)
       .setDepth(299);
 
-    // Add a thick, dark brown border
-    const border = this.add
-      .rectangle(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT / 2,
-        510,
-        210,
-        0x6d4c41, // dark brown
-        1
-      )
-      .setOrigin(0.5)
-      .setVisible(false)
-      .setDepth(298);
+    // Add a thick, strong blue border using Graphics (stroke only, no fill)
+    const borderGraphics = this.add.graphics();
+    borderGraphics.lineStyle(8, 0x000000, 1); // 8px, blue, fully opaque
+    borderGraphics.strokeRect(
+      GAME_WIDTH / 2 - 255,
+      GAME_HEIGHT / 2 - 105,
+      510,
+      210
+    );
+    borderGraphics.setVisible(false);
+    borderGraphics.setDepth(298);
 
     this.gameOverPanel = panel;
-    this.gameOverBorder = border;
+    this.gameOverBorder = borderGraphics;
 
     this.countdownText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "", {
@@ -926,7 +924,7 @@ export class MainScene extends Phaser.Scene {
     if (data.itemsEarned) {
       this.itemsToDrop = data.itemsEarned * 2; // Double the items for longer rounds
     } else {
-      this.itemsToDrop = 2; // Changed from 20 to 2
+      this.itemsToDrop = 7; // Changed from 2 to 7
     }
     this.itemsDropped = 0;
     this.itemsCaughtOrMissed = 0;
