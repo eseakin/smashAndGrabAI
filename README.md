@@ -1,54 +1,50 @@
-# React + TypeScript + Vite
+My friend loved Timon and Pumba's Bug Toss from Sega's The Lion King and asked me to build it. I decided to do it using 100% AI written code just to see how far it could get.
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# Goals
 
-Currently, two official plugins are available:
+- [x] Make a working game using only Cursor's AI Agent
+- [x] Don't write a single line of code
+- [x] Use AI to write the entire thing
+- [x] Use libraries I've never tried before
+- [x] Do my best not to look up any documentation
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+# Outcome
 
-## Expanding the ESLint configuration
+After about 12 hours of work
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- The game works great
+- Didn't write a single line of code
+- Used AI to write the entire thing
+- Used Phaser, which I had never heard of
+- Never looked up documentation for Phaser
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+# Working systems
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- Win/loss condition
+- Parallax scrolling
+- Hit points
+- Collision
+- Player movement + slide/dash + jumping
+- Dynamically increasing difficulty
+- Dynamic animation framerate control
+- Particle effects
+- Physics (OOTB gravity)
+- Victory screen
+- Score keeping
+- Complex composite animations with timing offsets
+- Interrupting animations when a new command is entered
+- Multiple item types with weighted randomization
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+# Issues
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
-```
+- The beginning was extremely easy, but it quickly became a slog as more features were added
+- The AI often rewrites entire sections of unrelated code when changing small things
+- The AI often tells you it has changed something when it has deleted and readded the same line
+- The AI will confidently tell you it has solved the problem when it has not
+- The AI will confidently say "Aha! Now I've figured it out!" when it has not
+
+# Conclusion
+
+- This is an incredible way to springboard a greenfield project, but it's pretty limited for writing the whole thing itself
+- Pairing with the AI is far more effective, allowing very fast iteration on modular features
+- Telling the AI exactly what you want to build upfront is much more effective than going piecemeal. When I let it know what features I wanted ahead of time, it left space for them, but features developed on the fly often were jammed in with inextensible patterns
